@@ -1,7 +1,7 @@
 """
 #############################################################
 ##                                                         ##
-##                 S Q U I S H  v.1.0.2                    ##
+##                 S Q U I S H  v.1.1.0                    ##
 ##                                                         ##
 ##              (c) 2024 Michel Vuijlsteke                 ##
 ##                                                         ##
@@ -11,6 +11,7 @@
 import curses
 import random
 import time
+import pygame
 from collections import deque
 import simpleaudio as sa
 class Game:
@@ -24,7 +25,7 @@ class Game:
     BLOCK_ID = 4  # Single ID for all movable blocks
 
     CHARACTER_MAP = {
-        HERO_ID: "<>",
+        HERO_ID: "◄►",
         ENEMY_ID: "├┤",
         UNPUSHABLE_BLOCK_ID: "██",
     }
@@ -51,10 +52,22 @@ class Game:
         self.level = 1
         self.total_squished_enemies = 0
         self.moves = 0
+        self.lives = 5  # New variable to track lives
         self.start_time = time.time()
         self.paused_time = 0  # Time spent in paused state
         self.last_pause_time = None  # Time when the game was paused
+        self.last_move_time = 0
         self.init_game()
+
+        # Initialize pygame and the joystick
+        pygame.init()
+        pygame.joystick.init()
+    
+        if pygame.joystick.get_count() > 0:
+            self.joystick = pygame.joystick.Joystick(0)
+            self.joystick.init()
+        else:
+            self.joystick = None
 
  
     def init_colors(self):
@@ -106,6 +119,10 @@ class Game:
         self.place_blocks()
         self.place_enemies()
         self.hero_pos = self.find_farthest_position()
+        self.render()  # Render the game state before playing the animation
+        self.respawn_animation()  # Play the respawn animation after rendering
+
+
 
 
     def place_blocks(self):
@@ -216,7 +233,7 @@ class Game:
         minutes = elapsed_time // 60
         seconds = elapsed_time % 60
         enemy_count = len(self.enemy_positions)
-        status_line = f"Enemies: {enemy_count}  Time: {minutes:02}:{seconds:02}"
+        status_line = f"Enemies: {enemy_count}  |  Time: {minutes:02}:{seconds:02}  |  Lives: {self.lives}"
 
         self.stdscr.addstr(self.height, 0, status_line.ljust(self.width * 2))
 
@@ -227,25 +244,63 @@ class Game:
 
         self.stdscr.refresh()
 
-
-
     def handle_input(self):
         """Processes player input."""
         key = self.stdscr.getch()
+        move_y, move_x = 0, 0
+        current_time = time.time()
+
+        # Cooldown duration (in seconds) to control movement speed
+        move_cooldown = 0.1
+
         if key == curses.KEY_UP:
-            self.move_hero(-1, 0)
+            move_y, move_x = -1, 0
         elif key == curses.KEY_DOWN:
-            self.move_hero(1, 0)
+            move_y, move_x = 1, 0
         elif key == curses.KEY_LEFT:
-            self.move_hero(0, -1)
+            move_y, move_x = 0, -1
         elif key == curses.KEY_RIGHT:
-            self.move_hero(0, 1)
+            move_y, move_x = 0, 1
         elif key == 27:  # Escape key
             self.pause_game()
         elif key == ord('q'):
             self.debug_output()
             return True  # Quit the game
+
+        if self.joystick:
+            pygame.event.pump()  # Process controller events
+
+            # Left stick for movement
+            axis_x = self.joystick.get_axis(0)
+            axis_y = self.joystick.get_axis(1)
+
+            # Implementing a dead zone
+            dead_zone = 0.2
+            if abs(axis_y) > dead_zone or abs(axis_x) > dead_zone:
+                # Simple threshold to detect movement
+                if axis_y < -0.5:
+                    move_y, move_x = -1, 0
+                elif axis_y > 0.5:
+                    move_y, move_x = 1, 0
+                elif axis_x < -0.5:
+                    move_y, move_x = 0, -1
+                elif axis_x > 0.5:
+                    move_y, move_x = 0, 1
+
+            # Handle button press for pause or quit
+            if self.joystick.get_button(7):  # Start button for pause
+                self.pause_game()
+            elif self.joystick.get_button(6):  # Back button for quit
+                self.debug_output()
+                return True  # Quit the game
+
+        # Only move the hero if enough time has passed since the last move
+        if (move_y != 0 or move_x != 0) and (current_time - self.last_move_time > move_cooldown):
+            self.move_hero(move_y, move_x)
+            self.last_move_time = current_time  # Update the last move time
+        
         return False
+
 
     def debug_output(self):
         """Outputs debug information to a file before quitting the game."""
@@ -444,14 +499,56 @@ class Game:
 
     def handle_hero_collision(self):
         """Handle what happens when the hero collides with an enemy."""
-        self.play_sound('collision.wav')  
-        self.init_game()  # Reset game for simplicity
+        self.play_sound('collision.wav')  # Play collision sound
 
-    def display_level_completion(self, duration):
-        """Displays a level completion message and waits for user input to continue."""
+        self.lives -= 1  # Decrease the number of lives
+
+        if self.lives > 0:
+            # Clear the hero's previous position
+            self.stdscr.addstr(self.hero_pos[0], self.hero_pos[1] * 2, "  ", curses.color_pair(self.BLOCK_ID))
+            self.hero_pos = self.find_farthest_position()
+            self.render()  # Render the updated game state
+            self.respawn_animation()  # Play the respawn animation
+        else:
+            self.end_game()  # End the game if no lives remain
+
+    def respawn_animation(self):
+        """Animate the hero's spawn with a cycle of characters and random colors."""
+        animation_frames = ["  ", "░░", "▒▒", "▓▓", "  ", "░░", "▒▒", "▓▓"]
+        
+        # Possible colors for the animation (you can add more if you like)
+        colors = [curses.COLOR_RED, curses.COLOR_GREEN, curses.COLOR_BLUE, curses.COLOR_MAGENTA, curses.COLOR_CYAN, curses.COLOR_YELLOW]
+
+        for frame in animation_frames:
+            # Choose a random color for each frame
+            random_color = random.choice(colors)
+            curses.init_pair(5, random_color, curses.COLOR_BLACK)  # Use pair 5 for animation colors
+            
+            # Display the frame with the random color
+            self.stdscr.addstr(self.hero_pos[0], self.hero_pos[1] * 2, frame, curses.color_pair(5))
+            self.stdscr.refresh()
+            time.sleep(0.1)  # Adjust sleep time for animation speed
+
+        # Finally, display the hero in the standard color
+        self.stdscr.addstr(self.hero_pos[0], self.hero_pos[1] * 2, self.CHARACTER_MAP[self.HERO_ID], curses.color_pair(self.HERO_ID))
+        self.stdscr.refresh()
+
+
+
+
+    def end_game(self):
+        """End the game when the player runs out of lives."""
+        duration = time.time() - self.start_time  # Calculate total time played
+        self.display_completion_message("Game Over!", duration)
+        self.debug_output()
+        raise SystemExit("Game over. You ran out of lives.")
+
+
+    def display_completion_message(self, title, duration):
+        """Displays a completion message (for level or game over) and waits for user input to continue."""
         self.stdscr.clear()
         msg = [
-            f"Level {self.level} Completed!",
+            title,
             "",
             f"Enemies Eliminated: {self.total_squished_enemies}",
             f"Moves Taken: {self.moves}",
@@ -474,6 +571,11 @@ class Game:
                 return True
             elif key == ord('q'):
                 return False
+
+    def display_level_completion(self, duration):
+        """Displays the end of level completion message."""
+        return self.display_completion_message(f"Level {self.level} Completed!", duration)
+
 
 def main(stdscr):
     game = Game(stdscr)
