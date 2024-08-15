@@ -29,7 +29,7 @@ class Game:
         UNPUSHABLE_BLOCK_ID: "██",
     }
 
-    MOVABLE_BLOCK_CHARACTERS = ['░░', '▒▒', '▓▓']  # Different characters for movable blocks
+    MOVABLE_BLOCK_CHARACTERS = ['░░', '▒▒']  # Different characters for movable blocks
     
     COLOR_MAP = {
         HERO_ID: curses.COLOR_CYAN,
@@ -52,6 +52,8 @@ class Game:
         self.total_squished_enemies = 0
         self.moves = 0
         self.start_time = time.time()
+        self.paused_time = 0  # Time spent in paused state
+        self.last_pause_time = None  # Time when the game was paused
         self.init_game()
 
  
@@ -205,8 +207,12 @@ class Game:
         if 0 <= self.hero_pos[0] < self.height and 0 <= self.hero_pos[1] < self.width:
             self.stdscr.addstr(self.hero_pos[0], self.hero_pos[1] * 2, self.CHARACTER_MAP[self.HERO_ID], curses.color_pair(self.HERO_ID))
 
-        # Display the status bar in the last but one line
-        elapsed_time = int(time.time() - self.start_time)
+        # Handle time display for paused state
+        if self.last_pause_time and show_options:  # If the game is paused
+            elapsed_time = int(self.last_pause_time - self.start_time - self.paused_time)
+        else:  # Game is running
+            elapsed_time = int(time.time() - self.start_time - self.paused_time)
+
         minutes = elapsed_time // 60
         seconds = elapsed_time % 60
         enemy_count = len(self.enemy_positions)
@@ -220,6 +226,7 @@ class Game:
             self.stdscr.addstr(self.height + 1, 0, options_line.ljust(self.width * 2))
 
         self.stdscr.refresh()
+
 
 
     def handle_input(self):
@@ -254,20 +261,23 @@ class Game:
             f.write("-------------------------\n")
         print("Debug information saved to debug_output.txt")
 
-
-
-
     def pause_game(self):
         """Pause the game and display options."""
+        self.last_pause_time = time.time()  # Record the time when the game was paused
         while True:
             # Render the game with the options line shown
             self.render(show_options=True)
 
             key = self.stdscr.getch()
             if key == ord(' '):
+                # Calculate the duration of the pause and add it to the total paused time
+                self.paused_time += time.time() - self.last_pause_time
+                self.last_pause_time = None
                 return  # Continue the game
             elif key == ord('q'):
-                exit()  # Exit the game
+                self.debug_output()
+                raise SystemExit("Game exited.")
+
 
 
 
@@ -434,8 +444,7 @@ class Game:
 
     def handle_hero_collision(self):
         """Handle what happens when the hero collides with an enemy."""
-        self.play_sound('collision.wav')  # Assuming you have a collision sound
-        # For simplicity, just reset the game or decrease life, etc.
+        self.play_sound('collision.wav')  
         self.init_game()  # Reset game for simplicity
 
     def display_level_completion(self, duration):
