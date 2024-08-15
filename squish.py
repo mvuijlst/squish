@@ -61,6 +61,7 @@ class Game:
         self.percentile = 0.0
         self.rank = 0
         self.start_time = time.time()
+        self.paused = False
         self.paused_time = 0  # Time spent in paused state
         self.last_pause_time = None  # Time when the game was paused
         self.last_move_time = 0
@@ -241,7 +242,6 @@ class Game:
             # Short sleep to avoid maxing out CPU
             time.sleep(0.01)
 
-
     def render(self, show_options=False):
         """Renders the game state to the screen using characters from CHARACTER_MAP."""
         self.stdscr.clear()
@@ -260,25 +260,21 @@ class Game:
         if 0 <= self.hero_pos[0] < self.height and 0 <= self.hero_pos[1] < self.width:
             self.stdscr.addstr(self.hero_pos[0], self.hero_pos[1] * 2, self.CHARACTER_MAP[self.HERO_ID], curses.color_pair(self.HERO_ID))
 
-        # Handle time display for paused state
-        if self.last_pause_time and show_options:  # If the game is paused
-            elapsed_time = int(self.last_pause_time - self.start_time - self.paused_time)
-        else:  # Game is running
-            elapsed_time = int(time.time() - self.start_time - self.paused_time)
+        # Calculate the current rank dynamically
+        rank = self.calculate_current_rank()
 
+        # Display the status bar in the last but one line
+        elapsed_time = int(self.paused_time + (time.time() - self.start_time) if not self.paused else self.paused_time)
         minutes = elapsed_time // 60
         seconds = elapsed_time % 60
         enemy_count = len(self.enemy_positions)
-        status_line = (
-            f"Enemies: {enemy_count}  |  Time: {minutes:02}:{seconds:02}  |  "
-            f"Lives: {self.lives}  |  Score: {self.score}  |  Rank: {self.rank}  |  Percentile: {self.percentile:.2f}%"
-        )
+        status_line = f"Enemies: {enemy_count}  |  Time: {minutes:02}:{seconds:02}  |  Lives: {self.lives}  |  Score: {self.score} ({rank})"
 
         self.stdscr.addstr(self.height, 0, status_line.ljust(self.width * 2))
 
         # Optionally display the options line (only during pause)
         if show_options:
-            options_line = "<space> = continue | s = Scores | q = Exit"
+            options_line = "<space> = continue | F1 = High scores | q = Exit"
             self.stdscr.addstr(self.height + 1, 0, options_line.ljust(self.width * 2))
 
         self.stdscr.refresh()
@@ -322,7 +318,6 @@ class Game:
         elif 27 in keys:  # Escape key
             self.pause_game()
         elif ord('q') in keys:
-            self.debug_output()
             return True  # Quit the game
 
         if self.joystick:
@@ -348,7 +343,6 @@ class Game:
             if self.joystick.get_button(7):  # Start button for pause
                 self.pause_game()
             elif self.joystick.get_button(6):  # Back button for quit
-                self.debug_output()
                 return True  # Quit the game
 
         # Only move the hero if enough time has passed since the last move
@@ -358,36 +352,24 @@ class Game:
         
         return False
 
-
-
-
-    def debug_output(self):
-        """Outputs debug information to a file before quitting the game."""
-        with open("debug_output.txt", "w", encoding="utf-8") as f:
-            f.write("--- DEBUG INFORMATION ---\n")
-            f.write(f"Screen width (cells): {self.width * 2}\n")
-            f.write(f"Screen height (lines): {self.height}\n")
-            f.write(f"Hero position: {self.hero_pos}\n")
-            f.write(f"Number of enemies: {len(self.enemy_positions)}\n")
-            f.write(f"Block positions: {len(self.block_positions)}\n")
-            f.write(f"Enemies positions: {self.enemy_positions}\n")
-            f.write(f"Block positions: {self.block_positions}\n")
-            f.write("-------------------------\n")
-        print("Debug information saved to debug_output.txt")
-
     def pause_game(self):
         """Pause the game and display options."""
+        self.last_pause_time = time.time()  # Record the time when the game was paused
         while True:
             # Render the game with the options line shown
             self.render(show_options=True)
 
             key = self.stdscr.getch()
-            if key == ord(' '):
+            if key == ord(' '):  # Space to continue
+                # Adjust the paused time
+                self.paused_time += time.time() - self.last_pause_time
+                self.last_pause_time = None
                 return  # Continue the game
             elif key == ord('s'):  
                 self.display_high_scores()  # Show high scores
-            elif key == ord('q'):
-                exit()  # Exit the game
+            elif key == ord('q'):  # Quit the game
+                exit()
+
 
 
     def move_hero(self, dy, dx):
@@ -599,8 +581,35 @@ class Game:
         if self.display_completion_message("Game Over!", duration):
             self.save_high_score()
 
-        self.debug_output()
-        raise SystemExit("Game over. You ran out of lives.")
+        # Prompt the player to play another game or quit
+        while True:
+            self.stdscr.clear()
+            end_msg = "Game Over!"
+            prompt_msg = "Would you like to play another game? (y/n): "
+            self.stdscr.addstr(self.height // 2 - 1, (self.width * 2 - len(end_msg)) // 2, end_msg)
+            self.stdscr.addstr(self.height // 2 + 1, (self.width * 2 - len(prompt_msg)) // 2, prompt_msg)
+            self.stdscr.refresh()
+
+            key = self.stdscr.getch()
+            if key == ord('y'):
+                self.reset_game()
+                break
+            elif key == ord('n') or key == ord('q'):
+                self.stdscr.clear()
+                self.stdscr.refresh()
+                raise SystemExit("Game over. You chose to exit.")
+
+    def reset_game(self):
+        """Resets the game state for a new game."""
+        self.level = 1
+        self.lives = 5
+        self.score = 0
+        self.total_squished_enemies = 0
+        self.moves = 0
+        self.start_time = time.time()
+        self.init_game()
+        self.main_loop()
+
 
     def save_high_score(self):
         """Prompt for player's name and save the high score."""
@@ -627,10 +636,6 @@ class Game:
         with open("high_scores.txt", "a") as file:
             file.write(encoded_entry + "\n")
 
-        # Load high scores and calculate rank and percentile
-        high_scores = self.load_high_scores()
-        self.rank, self.percentile = self.calculate_percentile_and_rank(high_scores)  # Calculate rank and percentile
-
         self.stdscr.addstr(self.height // 2 + 3, (self.width * 2 - len("High score saved!")) // 2, "High score saved!")
         self.stdscr.refresh()
         time.sleep(2)  # Wait for 2 seconds before closing
@@ -652,9 +657,8 @@ class Game:
 
     def display_high_scores(self):
         """Display the high scores in a centered window over the playing field, leaving the border visible."""
-        # Load and decode high scores
         high_scores = self.load_high_scores()
-        
+
         if not high_scores:
             self.stdscr.addstr(self.height // 2, (self.width * 2 - len("No high scores available.")) // 2, "No high scores available.")
             self.stdscr.refresh()
@@ -664,73 +668,89 @@ class Game:
                     break
             return
 
-        # Sort high scores in descending order by score (second item after split)
-        high_scores.sort(reverse=True, key=lambda x: int(x.split(',')[1]))
+        high_scores.sort(reverse=True, key=lambda x: int(x.split(',')[1]))  # Sort by score
 
-        max_scores_to_display = min(len(high_scores), self.height - 6)  # Adjusted to keep within the game border
+        max_scores_to_display = min(len(high_scores), self.height - 6)
 
-        # Determine the width of the window based on the longest line needed to display the high scores
-        max_width = max(len(f"{idx + 1}. {name} {date_time} {score}")
-                        for idx, entry in enumerate(high_scores[:max_scores_to_display])
-                        for name, score, date_time, _ in [entry.split(',')])
+        # Calculate the max length of the name for alignment
+        longest_name = max(len(entry.split(',')[0]) for entry in high_scores[:max_scores_to_display])
+        name_column_width = longest_name + 4
+        date_column_width = 10  # "YYYY-MM-DD" is 10 characters
+        time_column_width = 8   # "HH:MM:SS" is 8 characters
+        score_column_width = 5  # Score width, assuming up to 99999
 
-        # Set window dimensions
-        win_height = max_scores_to_display + 2  # 1 line for title, 1 line for padding
-        win_width = min(max_width + 4, self.width * 2)  # 2 for padding
+        # Calculate the width of the high score window
+        win_width = name_column_width + date_column_width + time_column_width + score_column_width + 12  # Adjust for padding and borders
+        win_height = max_scores_to_display + 2 + 3  # 2 for header, 2 for top/bottom borders, 1 for the title
 
-        # Calculate top-left corner of the window
+        # Set the window position
         start_y = (self.height - win_height) // 2
         start_x = (self.width * 2 - win_width) // 2
 
-        # Clear the area where the window will be drawn
-        for i in range(win_height):
-            self.stdscr.addstr(start_y + i, start_x, " " * win_width)
+        # Draw the border
+        self.stdscr.addstr(start_y, start_x, f"╔{'═' * (win_width - 2)}╗")
+        self.stdscr.addstr(start_y + win_height - 1, start_x, f"╚{'═' * (win_width - 2)}╝")
 
-        # Display title
-        title = "High Scores"
-        self.stdscr.addstr(start_y, start_x + (win_width - len(title)) // 2, title)
+        for i in range(1, win_height - 1):
+            self.stdscr.addstr(start_y + i, start_x, "║")
+            self.stdscr.addstr(start_y + i, start_x + win_width - 1, "║")
 
-        # Display the top scores
+        # Fill the background of the window
+        for i in range(1, win_height - 1):
+            self.stdscr.addstr(start_y + i, start_x + 1, " " * (win_width - 2))
+
+        # Add the title
+        title = "HIGH SCORES"
+        title_start_x = start_x + (win_width - len(title)) // 2
+        self.stdscr.addstr(start_y + 1, title_start_x, title)
+
+        # Calculate the starting x positions for each column
+        name_start_x = start_x + 2
+        date_start_x = name_start_x + name_column_width + 2
+        time_start_x = date_start_x + date_column_width + 2
+        score_start_x = time_start_x + time_column_width + 4  # Adjust space before score
+
+        # Print the header
+        self.stdscr.addstr(start_y + 2, name_start_x + 4, "Name")
+        self.stdscr.addstr(start_y + 2, date_start_x, "Date")
+        self.stdscr.addstr(start_y + 2, time_start_x, "Time")
+        self.stdscr.addstr(start_y + 2, score_start_x, "Score".rjust(score_column_width))
+
+        # Print the high scores
         for idx, entry in enumerate(high_scores[:max_scores_to_display]):
             name, score, date_time, _ = entry.split(',')
-            score_line = f"{idx + 1}. {name} {date_time} {score}"
-            self.stdscr.addstr(start_y + 1 + idx, start_x + 2, score_line)
+            date, time = date_time.split(' ')
+            self.stdscr.addstr(start_y + 3 + idx, name_start_x, f"{str(idx + 1) + '.':>3} {name}")
+            self.stdscr.addstr(start_y + 3 + idx, date_start_x, date)
+            self.stdscr.addstr(start_y + 3 + idx, time_start_x, time)
+            self.stdscr.addstr(start_y + 3 + idx, score_start_x, score.rjust(score_column_width))
 
         self.stdscr.refresh()
 
-        # Wait until the player presses space or escape before continuing
+        # Wait for space or ESC key to be pressed
         while True:
             key = self.stdscr.getch()
-            if key in [ord(' '), ord('s'), 27]:  # Space bar or s or ESC key
+            if key in [ord(' '), 27]:  # Space bar or ESC key
                 break
 
+    def calculate_current_rank(self):
+        """Calculate and return the current rank based on the current score."""
+        try:
+            high_scores = self.load_high_scores()  # Use the existing load_high_scores method
+        except FileNotFoundError:
+            high_scores = []
+
+        # Extract scores and sort them
+        sorted_scores = sorted([int(score.split(',')[1]) for score in high_scores], reverse=True)
+
+        # Calculate rank
+        count = len([score for score in sorted_scores if score > self.score])
+        final_rank = count + 1
+        return final_rank
 
 
 
-
-    def calculate_percentile_and_rank(self, high_scores):
-        """Calculate the percentile and rank of the current score."""
-        if not high_scores:
-            return 1, 100.0  # If there are no high scores, the current score is ranked 1 and is at the top percentile
-
-        # Sort the high scores in ascending order
-        sorted_scores = sorted(high_scores)
-        
-        # Find the position of the current score in the sorted list
-        count = len([score for score in sorted_scores if score < self.score])
-        rank = len(sorted_scores) - count + 1  # Rank is higher for better scores
-        
-        # Calculate the percentile
-        percentile = (count / len(sorted_scores)) * 100
-
-        # Ensure that the highest score is considered the 100th percentile
-        if self.score >= max(sorted_scores):
-            percentile = 100.0
-
-        return rank, percentile
-
-
-
+ 
     def display_completion_message(self, title, duration):
         """Displays a completion message (for level or game over) and waits for user input to continue."""
         self.stdscr.clear()
