@@ -11,8 +11,8 @@
 import curses
 import random
 import time
-import pygame
 from collections import deque
+import pygame
 import simpleaudio as sa
 class Game:
     BLOCK_COVERAGE = 0.35
@@ -31,7 +31,7 @@ class Game:
     }
 
     MOVABLE_BLOCK_CHARACTERS = ['░░', '▒▒']  # Different characters for movable blocks
-    
+
     COLOR_MAP = {
         HERO_ID: curses.COLOR_CYAN,
         ENEMY_ID: curses.COLOR_RED,
@@ -52,24 +52,25 @@ class Game:
         self.level = 1
         self.total_squished_enemies = 0
         self.moves = 0
-        self.lives = 5  # New variable to track lives
+        self.lives = 5  # hero lives
+        self.score = 0
         self.start_time = time.time()
         self.paused_time = 0  # Time spent in paused state
         self.last_pause_time = None  # Time when the game was paused
         self.last_move_time = 0
+        self.move_cooldown = 0.1 # minimum time between hero moves
         self.init_game()
 
         # Initialize pygame and the joystick
         pygame.init()
         pygame.joystick.init()
-    
+
         if pygame.joystick.get_count() > 0:
             self.joystick = pygame.joystick.Joystick(0)
             self.joystick.init()
         else:
             self.joystick = None
 
- 
     def init_colors(self):
         """Initialize color pairs dynamically based on the COLOR_MAP."""
         curses.start_color()
@@ -233,7 +234,7 @@ class Game:
         minutes = elapsed_time // 60
         seconds = elapsed_time % 60
         enemy_count = len(self.enemy_positions)
-        status_line = f"Enemies: {enemy_count}  |  Time: {minutes:02}:{seconds:02}  |  Lives: {self.lives}"
+        status_line = f"Enemies: {enemy_count}  |  Time: {minutes:02}:{seconds:02}  |  Lives: {self.lives}  |  Score: {self.score}"
 
         self.stdscr.addstr(self.height, 0, status_line.ljust(self.width * 2))
 
@@ -244,26 +245,43 @@ class Game:
 
         self.stdscr.refresh()
 
+
     def handle_input(self):
         """Processes player input."""
         key = self.stdscr.getch()
         move_y, move_x = 0, 0
         current_time = time.time()
 
-        # Cooldown duration (in seconds) to control movement speed
-        move_cooldown = 0.1
 
-        if key == curses.KEY_UP:
-            move_y, move_x = -1, 0
-        elif key == curses.KEY_DOWN:
-            move_y, move_x = 1, 0
-        elif key == curses.KEY_LEFT:
-            move_y, move_x = 0, -1
-        elif key == curses.KEY_RIGHT:
-            move_y, move_x = 0, 1
-        elif key == 27:  # Escape key
+        keys = set()
+        
+        # Add a delay to allow time for pressing multiple keys
+        start_time = time.time()
+        while key != -1 and (time.time() - start_time) < 0.05:  # 0.05 seconds delay
+            keys.add(key)
+            key = self.stdscr.getch()
+            time.sleep(0.01)  # Adding a slight delay to capture multiple key presses
+
+
+        if curses.KEY_UP in keys and curses.KEY_LEFT in keys:
+            move_y, move_x = -1, -1
+        elif curses.KEY_UP in keys and curses.KEY_RIGHT in keys:
+            move_y, move_x = -1, 1
+        elif curses.KEY_DOWN in keys and curses.KEY_LEFT in keys:
+            move_y, move_x = 1, -1
+        elif curses.KEY_DOWN in keys and curses.KEY_RIGHT in keys:
+            move_y, move_x = 1, 1
+        elif curses.KEY_UP in keys:
+            move_y = -1
+        elif curses.KEY_DOWN in keys:
+            move_y = 1
+        elif curses.KEY_LEFT in keys:
+            move_x = -1
+        elif curses.KEY_RIGHT in keys:
+            move_x = 1
+        elif 27 in keys:  # Escape key
             self.pause_game()
-        elif key == ord('q'):
+        elif ord('q') in keys:
             self.debug_output()
             return True  # Quit the game
 
@@ -277,15 +295,14 @@ class Game:
             # Implementing a dead zone
             dead_zone = 0.2
             if abs(axis_y) > dead_zone or abs(axis_x) > dead_zone:
-                # Simple threshold to detect movement
                 if axis_y < -0.5:
-                    move_y, move_x = -1, 0
+                    move_y -= 1
                 elif axis_y > 0.5:
-                    move_y, move_x = 1, 0
-                elif axis_x < -0.5:
-                    move_y, move_x = 0, -1
+                    move_y += 1
+                if axis_x < -0.5:
+                    move_x -= 1
                 elif axis_x > 0.5:
-                    move_y, move_x = 0, 1
+                    move_x += 1
 
             # Handle button press for pause or quit
             if self.joystick.get_button(7):  # Start button for pause
@@ -295,11 +312,13 @@ class Game:
                 return True  # Quit the game
 
         # Only move the hero if enough time has passed since the last move
-        if (move_y != 0 or move_x != 0) and (current_time - self.last_move_time > move_cooldown):
+        if (move_y != 0 or move_x != 0) and (current_time - self.last_move_time > self.move_cooldown):
             self.move_hero(move_y, move_x)
             self.last_move_time = current_time  # Update the last move time
         
         return False
+
+
 
 
     def debug_output(self):
@@ -394,6 +413,7 @@ class Game:
                 # There's a block behind the enemy, squish it
                 self.enemy_positions.pop((current_y, current_x))
                 self.total_squished_enemies += 1
+                self.score += 2  # Add 2 points for squishing an enemy
                 self.play_sound('squish.wav')
                 print(f"Enemy squished at {(current_y, current_x)}")
             else:
@@ -405,6 +425,7 @@ class Game:
             new_y = y + dy
             new_x = x + dx
             self.block_positions[(new_y, new_x)] = self.block_positions.pop((y, x))
+
 
 
     def check_squish(self, y, x):
@@ -434,11 +455,11 @@ class Game:
         self.check_collisions()
 
     def bfs_find_path(self, start, goal):
-        """Find the shortest path from start to goal using BFS."""
+        """Find the shortest path from start to goal using BFS, including diagonal movements."""
         queue = deque([start])
         visited = {start: None}
 
-        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]
 
         while queue:
             current = queue.popleft()
@@ -462,19 +483,20 @@ class Game:
 
         return []  # Return an empty path if no path is found
 
+
     def move_enemies(self):
         """Move enemies towards the hero using BFS or randomly if no path is found."""
         new_positions = {}
-        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]
 
-        for pos in self.enemy_positions:
+        for pos, enemy_char in self.enemy_positions.items():
             path = self.bfs_find_path(pos, self.hero_pos)
             if len(path) > 1:  # Path found, move towards hero
                 next_pos = path[1]
                 if next_pos not in self.block_positions and next_pos not in new_positions:
-                    new_positions[next_pos] = self.enemy_positions[pos]
+                    new_positions[next_pos] = enemy_char
                 else:
-                    new_positions[pos] = self.enemy_positions[pos]
+                    new_positions[pos] = enemy_char
             else:  # No path found, move randomly
                 random.shuffle(directions)
                 for dy, dx in directions:
@@ -483,10 +505,10 @@ class Game:
                         0 <= next_pos[1] < self.width and
                         next_pos not in self.block_positions and
                         next_pos not in new_positions):
-                        new_positions[next_pos] = self.enemy_positions[pos]
+                        new_positions[next_pos] = enemy_char
                         break
                 else:
-                    new_positions[pos] = self.enemy_positions[pos]  # Stay in place if no move is possible
+                    new_positions[pos] = enemy_char  # Stay in place if no move is possible
 
         self.enemy_positions = new_positions
 
@@ -553,6 +575,7 @@ class Game:
             f"Enemies Eliminated: {self.total_squished_enemies}",
             f"Moves Taken: {self.moves}",
             f"Time Taken: {int(duration)} seconds",
+            f"Score: {self.score}",  # Add score to the completion message
             "",
             "Press <space> to continue or 'q' to quit"
         ]
@@ -572,9 +595,12 @@ class Game:
             elif key == ord('q'):
                 return False
 
+
     def display_level_completion(self, duration):
         """Displays the end of level completion message."""
+        self.score += 5  # Add 5 points for completing a level
         return self.display_completion_message(f"Level {self.level} Completed!", duration)
+
 
 
 def main(stdscr):
