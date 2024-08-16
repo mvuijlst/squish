@@ -14,51 +14,53 @@ import time
 import hashlib
 import datetime
 import base64
-from scipy import stats
 from collections import deque
 import pygame
 import simpleaudio as sa
 class Game:
-    BLOCK_COVERAGE = 0.35
+    """
+    A class representing the game.
+    """
+    BLOCK_COVERAGE = 0.30
+    UNMOVABLE_BLOCKS = 0.01
     INITIAL_NUM_ENEMIES = 1
     ENEMY_MOVE_DELAY = 1000
 
-    HERO_ID = 1
-    ENEMY_ID = 2
-    UNPUSHABLE_BLOCK_ID = 3
-    BLOCK_ID = 4  # Single ID for all movable blocks
+    HERO = 1
+    ENEMY = 2
+    UNPUSHABLE_BLOCK = 3
+    BLOCK = 4
 
     CHARACTER_MAP = {
-        HERO_ID: "◄►",
-        ENEMY_ID: "├┤",
-        UNPUSHABLE_BLOCK_ID: "██",
+        HERO: "◄►",
+        ENEMY: "├┤",
+        UNPUSHABLE_BLOCK: "██",
     }
 
-    MOVABLE_BLOCK_CHARACTERS = ['░░', '▒▒']  # Different characters for movable blocks
+    MOVABLE_BLOCK_CHARACTERS = ['░░', '▒▒', '▓▓']  # Different characters for movable blocks
 
     COLOR_MAP = {
-        HERO_ID: curses.COLOR_CYAN,
-        ENEMY_ID: curses.COLOR_RED,
-        UNPUSHABLE_BLOCK_ID: curses.COLOR_YELLOW,
-        BLOCK_ID: curses.COLOR_WHITE,
+        HERO: curses.COLOR_CYAN,
+        ENEMY: curses.COLOR_RED,
+        UNPUSHABLE_BLOCK: curses.COLOR_YELLOW,
+        BLOCK: curses.COLOR_WHITE,
     }
 
     def __init__(self, stdscr):
         self.stdscr = stdscr
         curses.curs_set(0)
         self.height, self.width = stdscr.getmaxyx()
-        self.height -= 2  # Reduce height by 2 lines to make room for status
-        self.width //= 2  # Adjust width for character cell width
+        self.height -= 2
+        self.width //= 2
         self.init_colors()
         self.hero_pos = (self.height // 2, self.width // 4)
         self.block_positions = {}
         self.enemy_positions = {}
         self.level = 1
+        self.lives = 2  # hero lives
         self.total_squished_enemies = 0
         self.moves = 0
-        self.lives = 2  # hero lives
         self.score = 0
-        self.percentile = 0.0
         self.rank = 0
         self.start_time = time.time()
         self.paused = False
@@ -78,11 +80,73 @@ class Game:
         else:
             self.joystick = None
 
+    def init_game(self):
+        """Places game elements on the board."""
+        self.place_blocks()
+        self.place_enemies()
+        self.hero_pos = self.find_farthest_position()
+        self.render()
+        self.respawn_animation()
+
     def init_colors(self):
         """Initialize color pairs dynamically based on the COLOR_MAP."""
         curses.start_color()
         for color_id, color in self.COLOR_MAP.items():
             curses.init_pair(color_id, color, curses.COLOR_BLACK)
+
+    def place_blocks(self):
+        """Randomly places blocks and a border of unmovable blocks on the grid."""
+        self.block_positions = {}
+        
+        # Ensure that we're working with the screen's usable width and height
+        max_x = self.width - 1  # Adjusting so that we don't exceed screen width
+        max_y = self.height - 3  # Adjusting height to leave space for status lines
+
+        # Place unmovable border blocks
+        for x in range(max_x + 1):  # Avoid overflow by ensuring x stays within the range
+            self.block_positions[(0, x)] = self.CHARACTER_MAP[self.UNPUSHABLE_BLOCK]  # Top border
+            self.block_positions[(max_y, x)] = self.CHARACTER_MAP[self.UNPUSHABLE_BLOCK]  # Bottom border (above status lines)
+        for y in range(1, max_y):
+            self.block_positions[(y, 0)] = self.CHARACTER_MAP[self.UNPUSHABLE_BLOCK]  # Left border
+            self.block_positions[(y, max_x)] = self.CHARACTER_MAP[self.UNPUSHABLE_BLOCK]  # Right border
+
+        # Place random movable blocks inside the borders
+        for _ in range(int((max_x - 1) * (max_y - 1) * self.BLOCK_COVERAGE)):
+            while True:
+                x = random.randint(1, max_x - 1)  # Ensure x is within valid range for rendering
+                y = random.randint(1, max_y - 1)
+                if (y, x) not in self.block_positions:
+                    self.block_positions[(y, x)] = random.choice(self.MOVABLE_BLOCK_CHARACTERS)
+                    break
+
+        # Add additional unmovable blocks randomly
+        num_unmovable_blocks = int((max_x * max_y) * self.UNMOVABLE_BLOCKS)
+        for _ in range(num_unmovable_blocks):
+            while True:
+                x = random.randint(1, max_x - 1)
+                y = random.randint(1, max_y - 1)
+                if (y, x) not in self.block_positions:
+                    self.block_positions[(y, x)] = self.CHARACTER_MAP[self.UNPUSHABLE_BLOCK]
+                    break
+
+
+    def place_enemies(self):
+        """Randomly places enemies within the bounds of the playing field."""
+        self.enemy_positions = {}
+        max_x = self.width - 2
+        max_y = self.height - 2
+
+        for _ in range(self.level + self.INITIAL_NUM_ENEMIES):
+            while True:
+                x = random.randint(1, max_x - 1)
+                y = random.randint(1, max_y - 1)
+                if (y, x) not in self.block_positions and (y, x) not in self.enemy_positions:
+                    self.enemy_positions[(y, x)] = self.CHARACTER_MAP[self.ENEMY]
+                    break
+
+    def find_hero_start_position(self):
+        """Find a suitable starting position for the hero."""
+        return (self.height // 2, self.width // 4)
 
     def calculate_distances(self, start_positions):
         """Calculate the distance from all start positions using BFS."""
@@ -151,59 +215,8 @@ class Game:
         return distances
 
 
-    def init_game(self):
-        """Places game elements on the board."""
-        self.place_blocks()
-        self.place_enemies()
-        self.hero_pos = self.find_farthest_position()
-        self.render()  # Render the game state before playing the animation
-        self.respawn_animation()  # Play the respawn animation after rendering
 
 
-
-
-    def place_blocks(self):
-        """Randomly places blocks and a border of unmovable blocks on the grid."""
-        self.block_positions = {}
-        
-        # Ensure that we're working with the screen's usable width in character cells
-        max_x = self.width - 1  # Adjusting so that we don't exceed screen width
-
-        # Place unmovable border blocks
-        for x in range(max_x + 1):  # Avoid overflow by ensuring x stays within the range
-            self.block_positions[(0, x)] = self.CHARACTER_MAP[self.UNPUSHABLE_BLOCK_ID]  # Top border
-            self.block_positions[(self.height - 1, x)] = self.CHARACTER_MAP[self.UNPUSHABLE_BLOCK_ID]  # Bottom border
-        for y in range(1, self.height - 1):
-            self.block_positions[(y, 0)] = self.CHARACTER_MAP[self.UNPUSHABLE_BLOCK_ID]  # Left border
-            self.block_positions[(y, max_x)] = self.CHARACTER_MAP[self.UNPUSHABLE_BLOCK_ID]  # Right border
-
-        # Place random movable blocks inside the borders
-        for _ in range(int((max_x - 1) * (self.height - 2) * self.BLOCK_COVERAGE)):
-            while True:
-                x = random.randint(1, max_x - 1)  # Ensure x is within valid range for rendering
-                y = random.randint(1, self.height - 2)
-                if (y, x) not in self.block_positions:
-                    self.block_positions[(y, x)] = random.choice(self.MOVABLE_BLOCK_CHARACTERS)
-                    break
-
-
-    def place_enemies(self):
-        """Randomly places enemies within the bounds of the playing field."""
-        self.enemy_positions = {}
-        max_x = self.width - 2
-        max_y = self.height - 2
-
-        for _ in range(self.level + self.INITIAL_NUM_ENEMIES):
-            while True:
-                x = random.randint(1, max_x - 1)
-                y = random.randint(1, max_y - 1)
-                if (y, x) not in self.block_positions and (y, x) not in self.enemy_positions:
-                    self.enemy_positions[(y, x)] = self.CHARACTER_MAP[self.ENEMY_ID]
-                    break
-
-    def find_hero_start_position(self):
-        """Find a suitable starting position for the hero."""
-        return (self.height // 2, self.width // 4)
 
     def main_loop(self):
         """Main game loop with strict enemy movement delay."""
@@ -248,37 +261,42 @@ class Game:
 
         # Display blocks
         for pos, char in self.block_positions.items():
-            if 0 <= pos[0] < self.height and 0 <= pos[1] < self.width:
-                self.stdscr.addstr(pos[0], pos[1] * 2, char, curses.color_pair(self.BLOCK_ID))
+            if 0 <= pos[0] < self.height - 2 and 0 <= pos[1] < self.width:
+                # Use the correct color pair for unmovable blocks
+                if char == self.CHARACTER_MAP[self.UNPUSHABLE_BLOCK]:
+                    self.stdscr.addstr(pos[0], pos[1] * 2, char, curses.color_pair(self.UNPUSHABLE_BLOCK))
+                else:
+                    self.stdscr.addstr(pos[0], pos[1] * 2, char, curses.color_pair(self.BLOCK))
 
         # Display enemies
         for pos in self.enemy_positions:
-            if 0 <= pos[0] < self.height and 0 <= pos[1] < self.width:
-                self.stdscr.addstr(pos[0], pos[1] * 2, self.CHARACTER_MAP[self.ENEMY_ID], curses.color_pair(self.ENEMY_ID))
+            if 0 <= pos[0] < self.height - 2 and 0 <= pos[1] < self.width:
+                self.stdscr.addstr(pos[0], pos[1] * 2, self.CHARACTER_MAP[self.ENEMY], curses.color_pair(self.ENEMY))
 
         # Display hero
-        if 0 <= self.hero_pos[0] < self.height and 0 <= self.hero_pos[1] < self.width:
-            self.stdscr.addstr(self.hero_pos[0], self.hero_pos[1] * 2, self.CHARACTER_MAP[self.HERO_ID], curses.color_pair(self.HERO_ID))
+        if 0 <= self.hero_pos[0] < self.height - 2 and 0 <= self.hero_pos[1] < self.width:
+            self.stdscr.addstr(self.hero_pos[0], self.hero_pos[1] * 2, self.CHARACTER_MAP[self.HERO], curses.color_pair(self.HERO))
 
-        # Calculate the current rank dynamically
-        rank = self.calculate_current_rank()
+        # Draw the unbreakable block line above the status line
+        for x in range(self.width):
+            self.stdscr.addstr(self.height - 3, x * 2, self.CHARACTER_MAP[self.UNPUSHABLE_BLOCK], curses.color_pair(self.UNPUSHABLE_BLOCK))
 
-        # Display the status bar in the last but one line
+        # Calculate if there's room for the status line
         elapsed_time = int(self.paused_time + (time.time() - self.start_time) if not self.paused else self.paused_time)
         minutes = elapsed_time // 60
         seconds = elapsed_time % 60
         enemy_count = len(self.enemy_positions)
-        status_line = f"Enemies: {enemy_count}  |  Time: {minutes:02}:{seconds:02}  |  Lives: {self.lives}  |  Score: {self.score} ({rank})"
+        status_line = f"Enemies: {enemy_count}  |  Time: {minutes:02}:{seconds:02}  |  Lives: {self.lives}  |  Score: {self.score} ({self.rank})"
 
-        self.stdscr.addstr(self.height, 0, status_line.ljust(self.width * 2))
+        # Print status line in the last line of the available screen space
+        self.stdscr.addstr(self.height - 2, 0, status_line.ljust(self.width * 2))
 
-        # Optionally display the options line (only during pause)
+        # Calculate if there's room for the options line and print it
         if show_options:
-            options_line = "<space> = continue | F1 = High scores | q = Exit"
-            self.stdscr.addstr(self.height + 1, 0, options_line.ljust(self.width * 2))
+            options_line = "<space> = continue | s = Scores | q = Exit"
+            self.stdscr.addstr(self.height - 1, 0, options_line.ljust(self.width * 2))
 
         self.stdscr.refresh()
-
 
 
 
@@ -315,10 +333,10 @@ class Game:
             move_x = -1
         elif curses.KEY_RIGHT in keys:
             move_x = 1
-        elif 27 in keys:  # Escape key
+        elif 27 in keys:
             self.pause_game()
         elif ord('q') in keys:
-            return True  # Quit the game
+            self.confirm_quit() 
 
         if self.joystick:
             pygame.event.pump()  # Process controller events
@@ -370,7 +388,21 @@ class Game:
             elif key == ord('q'):  # Quit the game
                 exit()
 
+    def confirm_quit(self):
+        """Ask the player for confirmation before quitting the game."""
+        while True:
+            self.stdscr.clear()
+            quit_msg = "Are you sure you want to quit? (y/n)"
+            self.stdscr.addstr(self.height // 2, (self.width * 2 - len(quit_msg)) // 2, quit_msg)
+            self.stdscr.refresh()
 
+            key = self.stdscr.getch()
+            if key == ord('y'):
+                self.stdscr.clear()
+                self.stdscr.refresh()
+                raise SystemExit("Game over. You chose to exit.")
+            elif key == ord('n'):
+                return  # Return to the game if the player chooses not to quit
 
     def move_hero(self, dy, dx):
         """Move the hero in the specified direction, handling block pushing."""
@@ -382,7 +414,10 @@ class Game:
         if 0 <= new_y < self.height and 0 <= new_x < self.width:
             # Check if the next position is a block that potentially needs pushing
             if next_pos in self.block_positions:
-                if self.can_push_blocks(new_y, new_x, dy, dx):
+                block_type = self.block_positions[next_pos]
+                if block_type == self.CHARACTER_MAP[self.UNPUSHABLE_BLOCK]:
+                    return  # Unmovable block, hero can't move it
+                elif self.can_push_blocks(new_y, new_x, dy, dx):
                     self.push_blocks(new_y, new_x, dy, dx)
                     self.hero_pos = next_pos  # Move hero to the position of the first block
                     self.moves += 1
@@ -398,13 +433,25 @@ class Game:
         next_x = block_x + dx
         next_pos = (next_y, next_x)
 
-        # Check if the next position is within bounds and not occupied by unmovable objects
+        # Check if the next position is within bounds
         if not (0 <= next_y < self.height and 0 <= next_x < self.width):
             return False  # Stop if the next position is out of bounds
 
-        # Check if there's an enemy in the next position with no block behind it
-        if next_pos in self.enemy_positions and (next_y + dy, next_x + dx) not in self.block_positions:
-            return False  # Stop if there's an enemy without a block behind it
+        # Check if the block is unmovable
+        if next_pos in self.block_positions:
+            block_type = self.block_positions[next_pos]
+            if block_type == self.CHARACTER_MAP[self.UNPUSHABLE_BLOCK]:
+                return False  # Unmovable block, can't push
+
+        # Check if the next space contains an enemy
+        if next_pos in self.enemy_positions:
+            # If there's no block behind the enemy, stop the push
+            behind_enemy_y = next_y + dy
+            behind_enemy_x = next_x + dx
+            if not (0 <= behind_enemy_y < self.height and 0 <= behind_enemy_x < self.width):
+                return False  # Stop if behind the enemy is out of bounds
+            if (behind_enemy_y, behind_enemy_x) not in self.block_positions:
+                return False  # Stop if there is no block behind the enemy
 
         # If the next space contains another block, check if it can be pushed
         if next_pos in self.block_positions:
@@ -430,7 +477,6 @@ class Game:
                 # There's a block behind the enemy, squish it
                 self.enemy_positions.pop((current_y, current_x))
                 self.total_squished_enemies += 1
-                self.score += 2  # Add 2 points for squishing an enemy
                 self.play_sound('squish.wav')
                 print(f"Enemy squished at {(current_y, current_x)}")
             else:
@@ -442,7 +488,6 @@ class Game:
             new_y = y + dy
             new_x = x + dx
             self.block_positions[(new_y, new_x)] = self.block_positions.pop((y, x))
-
 
 
     def check_squish(self, y, x):
@@ -569,7 +614,7 @@ class Game:
             time.sleep(0.1)  # Adjust sleep time for animation speed
 
         # Finally, display the hero in the standard color
-        self.stdscr.addstr(self.hero_pos[0], self.hero_pos[1] * 2, self.CHARACTER_MAP[self.HERO_ID], curses.color_pair(self.HERO_ID))
+        self.stdscr.addstr(self.hero_pos[0], self.hero_pos[1] * 2, self.CHARACTER_MAP[self.HERO], curses.color_pair(self.HERO))
         self.stdscr.refresh()
 
 
@@ -580,6 +625,7 @@ class Game:
         # Display completion message and save high score
         if self.display_completion_message("Game Over!", duration):
             self.save_high_score()
+            self.display_high_scores()  # Show high scores after saving
 
         # Prompt the player to play another game or quit
         while True:
@@ -598,6 +644,7 @@ class Game:
                 self.stdscr.clear()
                 self.stdscr.refresh()
                 raise SystemExit("Game over. You chose to exit.")
+
 
     def reset_game(self):
         """Resets the game state for a new game."""
@@ -716,14 +763,15 @@ class Game:
         self.stdscr.addstr(start_y + 2, time_start_x, "Time")
         self.stdscr.addstr(start_y + 2, score_start_x, "Score".rjust(score_column_width))
 
-        # Print the high scores
+        # Print the high scores and highlight the current score
         for idx, entry in enumerate(high_scores[:max_scores_to_display]):
             name, score, date_time, _ = entry.split(',')
             date, time = date_time.split(' ')
-            self.stdscr.addstr(start_y + 3 + idx, name_start_x, f"{str(idx + 1) + '.':>3} {name}")
-            self.stdscr.addstr(start_y + 3 + idx, date_start_x, date)
-            self.stdscr.addstr(start_y + 3 + idx, time_start_x, time)
-            self.stdscr.addstr(start_y + 3 + idx, score_start_x, score.rjust(score_column_width))
+            color = curses.color_pair(self.UNPUSHABLE_BLOCK) if int(score) == self.score else curses.color_pair(self.BLOCK)
+            self.stdscr.addstr(start_y + 3 + idx, name_start_x, f"{str(idx + 1) + '.':>3} {name}", color)
+            self.stdscr.addstr(start_y + 3 + idx, date_start_x, date, color)
+            self.stdscr.addstr(start_y + 3 + idx, time_start_x, time, color)
+            self.stdscr.addstr(start_y + 3 + idx, score_start_x, score.rjust(score_column_width), color)
 
         self.stdscr.refresh()
 
@@ -732,6 +780,7 @@ class Game:
             key = self.stdscr.getch()
             if key in [ord(' '), 27]:  # Space bar or ESC key
                 break
+
 
     def calculate_current_rank(self):
         """Calculate and return the current rank based on the current score."""
@@ -761,9 +810,8 @@ class Game:
             f"Moves Taken: {self.moves}",
             f"Time Taken: {int(duration)} seconds",
             f"Score: {self.score}",
-            f"Percentile: {self.percentile:.2f}%",  # Show the percentile
             "",
-            "Press <space> to continue or 'q' to quit"
+            "Press <space> to continue"
         ]
         longest_line = max(len(line) for line in msg)
         start_y = (self.height - len(msg)) // 2
