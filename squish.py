@@ -24,26 +24,35 @@ class Game:
     BLOCK_COVERAGE = 0.30
     UNMOVABLE_BLOCKS = 0.01
     INITIAL_NUM_ENEMIES = 1
-    ENEMY_MOVE_DELAY = 1000
+    NUM_EGGS = 3
+    ENEMY_MOVE_DELAY = 10000
+
+    HATCHING_TIME = 5  # Time after which eggs begin to hatch
 
     HERO = 1
     ENEMY = 2
     UNPUSHABLE_BLOCK = 3
     BLOCK = 4
+    EGG = 5
+    PUSHER = 6
 
     CHARACTER_MAP = {
         HERO: "◄►",
         ENEMY: "├┤",
         UNPUSHABLE_BLOCK: "██",
+        EGG: "○○",
+        PUSHER: "╬╬",
     }
 
-    MOVABLE_BLOCK_CHARACTERS = ['░░', '▒▒', '▓▓']  # Different characters for movable blocks
+    MOVABLE_BLOCK_CHARACTERS = ['░░', '▒▒' ]  # Different characters for movable blocks
 
     COLOR_MAP = {
         HERO: curses.COLOR_CYAN,
         ENEMY: curses.COLOR_RED,
         UNPUSHABLE_BLOCK: curses.COLOR_YELLOW,
         BLOCK: curses.COLOR_WHITE,
+        EGG: curses.COLOR_MAGENTA,
+        PUSHER: curses.COLOR_RED,
     }
 
     def __init__(self, stdscr):
@@ -56,6 +65,8 @@ class Game:
         self.hero_pos = (self.height // 2, self.width // 4)
         self.block_positions = {}
         self.enemy_positions = {}
+        self.egg_positions = {}
+        self.hatching_times = {}
         self.level = 1
         self.lives = 2  # hero lives
         self.total_squished_enemies = 0
@@ -93,6 +104,7 @@ class Game:
         curses.start_color()
         for color_id, color in self.COLOR_MAP.items():
             curses.init_pair(color_id, color, curses.COLOR_BLACK)
+
 
     def place_blocks(self):
         """Randomly places blocks and a border of unmovable blocks on the grid."""
@@ -133,16 +145,33 @@ class Game:
     def place_enemies(self):
         """Randomly places enemies within the bounds of the playing field."""
         self.enemy_positions = {}
+        self.egg_positions = {}  # Ensure this is initialized
+        self.hatching_times = {}  # Initialize the hatching times
+
         max_x = self.width - 2
         max_y = self.height - 2
 
-        for _ in range(self.level + self.INITIAL_NUM_ENEMIES):
+        # Place eggs first
+        for _ in range(self.NUM_EGGS):
             while True:
                 x = random.randint(1, max_x - 1)
                 y = random.randint(1, max_y - 1)
                 if (y, x) not in self.block_positions and (y, x) not in self.enemy_positions:
+                    self.egg_positions[(y, x)] = self.CHARACTER_MAP[self.EGG]
+                    self.enemy_positions[(y, x)] = self.CHARACTER_MAP[self.EGG]
+                    self.hatching_times[(y, x)] = time.time() + self.HATCHING_TIME  # Initialize hatching time
+                    break
+
+        # Then place other enemies
+        for _ in range(self.level + self.INITIAL_NUM_ENEMIES):
+            while True:
+                x = random.randint(1, max_x - 1)
+                y = random.randint(1, max_y - 1)
+                if (y, x) not in self.block_positions and (y, x) not in self.enemy_positions and (y, x) not in self.egg_positions:
                     self.enemy_positions[(y, x)] = self.CHARACTER_MAP[self.ENEMY]
                     break
+
+
 
     def find_hero_start_position(self):
         """Find a suitable starting position for the hero."""
@@ -215,12 +244,10 @@ class Game:
         return distances
 
 
-
-
-
     def main_loop(self):
         """Main game loop with strict enemy movement delay."""
         last_enemy_move_time = time.time()
+        last_hatch_check_time = time.time()  # Add this to check egg hatching
 
         self.stdscr.nodelay(True)  # Non-blocking getch()
 
@@ -236,16 +263,21 @@ class Game:
 
             # Strictly check if it's time to move the enemies
             time_since_last_move = current_time - last_enemy_move_time
-
             if time_since_last_move >= self.ENEMY_MOVE_DELAY / 1000.0:
                 self.move_enemies()
                 last_enemy_move_time = current_time  # Reset the timer
 
+            # Check if it's time to check egg hatching
+            time_since_last_hatch_check = current_time - last_hatch_check_time
+            if time_since_last_hatch_check >= 1.0:  # Check hatching every second
+                self.hatch_eggs()
+                last_hatch_check_time = current_time
+
             # Update game state (e.g., collisions, etc.)
             self.update_game_state()
 
-            # Check if the level is completed (no more enemies)
-            if not self.enemy_positions:
+            # Check if the level is completed (no more enemies or eggs)
+            if not self.enemy_positions and not self.egg_positions:
                 duration = time.time() - self.start_time
                 if not self.display_level_completion(duration):
                     break  # Player chose to exit
@@ -255,6 +287,34 @@ class Game:
             # Short sleep to avoid maxing out CPU
             time.sleep(0.01)
 
+    def hatch_eggs(self):
+        """Handle the hatching process for all eggs."""
+        current_time = time.time()
+        new_pushers = {}
+
+        for pos, hatch_time in self.hatching_times.items():
+            if current_time >= hatch_time:
+                random_hatch_time = random.uniform(0, self.HATCHING_TIME)
+                if current_time >= hatch_time + random_hatch_time:
+                    # Transform the egg into a pusher
+                    new_pushers[pos] = self.CHARACTER_MAP[self.PUSHER]
+
+        # Update the positions
+        for pos in new_pushers:
+            self.egg_positions.pop(pos)
+            self.enemy_positions[pos] = new_pushers[pos]
+
+        # Remove hatched eggs from the hatching_times dictionary
+        self.hatching_times = {pos: hatch_time for pos, hatch_time in self.hatching_times.items() if pos not in new_pushers}
+
+
+    def any_enemies_left(self):
+        """Check if there are any enemies left on the field, including eggs and pushers."""
+        for char in self.enemy_positions.items():
+            if char in (self.CHARACTER_MAP[self.ENEMY], self.CHARACTER_MAP[self.EGG], self.CHARACTER_MAP[self.PUSHER]):
+                return True
+        return False
+
     def render(self, show_options=False):
         """Renders the game state to the screen using characters from CHARACTER_MAP."""
         self.stdscr.clear()
@@ -262,16 +322,17 @@ class Game:
         # Display blocks
         for pos, char in self.block_positions.items():
             if 0 <= pos[0] < self.height - 2 and 0 <= pos[1] < self.width:
-                # Use the correct color pair for unmovable blocks
-                if char == self.CHARACTER_MAP[self.UNPUSHABLE_BLOCK]:
-                    self.stdscr.addstr(pos[0], pos[1] * 2, char, curses.color_pair(self.UNPUSHABLE_BLOCK))
-                else:
-                    self.stdscr.addstr(pos[0], pos[1] * 2, char, curses.color_pair(self.BLOCK))
+                self.stdscr.addstr(pos[0], pos[1] * 2, char, curses.color_pair(self.UNPUSHABLE_BLOCK if char == self.CHARACTER_MAP[self.UNPUSHABLE_BLOCK] else self.BLOCK))
 
-        # Display enemies
-        for pos in self.enemy_positions:
+        # Display enemies, including eggs and pushers
+        for pos, char in self.enemy_positions.items():
             if 0 <= pos[0] < self.height - 2 and 0 <= pos[1] < self.width:
-                self.stdscr.addstr(pos[0], pos[1] * 2, self.CHARACTER_MAP[self.ENEMY], curses.color_pair(self.ENEMY))
+                if char == self.CHARACTER_MAP[self.PUSHER]:
+                    self.stdscr.addstr(pos[0], pos[1] * 2, self.CHARACTER_MAP[self.PUSHER], curses.color_pair(self.PUSHER))
+                elif char == self.CHARACTER_MAP[self.EGG]:
+                    self.stdscr.addstr(pos[0], pos[1] * 2, self.CHARACTER_MAP[self.EGG], curses.color_pair(self.EGG))
+                else:
+                    self.stdscr.addstr(pos[0], pos[1] * 2, self.CHARACTER_MAP[self.ENEMY], curses.color_pair(self.ENEMY))
 
         # Display hero
         if 0 <= self.hero_pos[0] < self.height - 2 and 0 <= self.hero_pos[1] < self.width:
@@ -297,7 +358,6 @@ class Game:
             self.stdscr.addstr(self.height - 1, 0, options_line.ljust(self.width * 2))
 
         self.stdscr.refresh()
-
 
 
     def handle_input(self):
@@ -412,7 +472,7 @@ class Game:
 
         # If the next position is within bounds:
         if 0 <= new_y < self.height and 0 <= new_x < self.width:
-            # Check if the next position is a block that potentially needs pushing
+            # Check if the next position is a block or an egg that needs pushing
             if next_pos in self.block_positions:
                 block_type = self.block_positions[next_pos]
                 if block_type == self.CHARACTER_MAP[self.UNPUSHABLE_BLOCK]:
@@ -421,11 +481,14 @@ class Game:
                     self.push_blocks(new_y, new_x, dy, dx)
                     self.hero_pos = next_pos  # Move hero to the position of the first block
                     self.moves += 1
+            elif next_pos in self.egg_positions:
+                return  # Eggs block movement, but don't harm the hero
             else:
-                # Move hero if the space is free from blocks and enemies
+                # Move hero if the space is free from blocks, eggs, and enemies
                 if next_pos not in self.enemy_positions:
                     self.hero_pos = next_pos
                     self.moves += 1
+
 
     def can_push_blocks(self, block_y, block_x, dy, dx):
         """Check recursively if all sequential blocks can be pushed."""
@@ -443,21 +506,22 @@ class Game:
             if block_type == self.CHARACTER_MAP[self.UNPUSHABLE_BLOCK]:
                 return False  # Unmovable block, can't push
 
-        # Check if the next space contains an enemy
-        if next_pos in self.enemy_positions:
-            # If there's no block behind the enemy, stop the push
-            behind_enemy_y = next_y + dy
-            behind_enemy_x = next_x + dx
-            if not (0 <= behind_enemy_y < self.height and 0 <= behind_enemy_x < self.width):
-                return False  # Stop if behind the enemy is out of bounds
-            if (behind_enemy_y, behind_enemy_x) not in self.block_positions:
-                return False  # Stop if there is no block behind the enemy
+        # Check if the next space contains an enemy or an egg
+        if next_pos in self.enemy_positions or next_pos in self.egg_positions:
+            # If there's no block behind the enemy or egg, stop the push
+            behind_y = next_y + dy
+            behind_x = next_x + dx
+            if not (0 <= behind_y < self.height and 0 <= behind_x < self.width):
+                return False  # Stop if behind the enemy or egg is out of bounds
+            if (behind_y, behind_x) not in self.block_positions:
+                return False  # Stop if there is no block behind the enemy or egg
 
         # If the next space contains another block, check if it can be pushed
         if next_pos in self.block_positions:
             return self.can_push_blocks(next_y, next_x, dy, dx)  # Recursive check for the next block
 
         return True  # If the next space is free, the blocks can be pushed
+
 
     def push_blocks(self, block_y, block_x, dy, dx):
         """Push blocks starting from the specified position, handling squishing logic."""
@@ -478,9 +542,19 @@ class Game:
                 self.enemy_positions.pop((current_y, current_x))
                 self.total_squished_enemies += 1
                 self.play_sound('squish.wav')
-                print(f"Enemy squished at {(current_y, current_x)}")
             else:
                 # No block behind the enemy, stop the block movement
+                return
+
+        # **Check for squishing eggs**
+        if (current_y, current_x) in self.egg_positions:
+            if (current_y + dy, current_x + dx) in self.block_positions:
+                # There's a block behind the egg, squish it
+                self.egg_positions.pop((current_y, current_x))
+                self.total_squished_enemies += 1
+                self.play_sound('squish.wav')
+            else:
+                # No block behind the egg, stop the block movement
                 return
 
         # Move all collected blocks
@@ -489,9 +563,12 @@ class Game:
             new_x = x + dx
             self.block_positions[(new_y, new_x)] = self.block_positions.pop((y, x))
 
+        # Update the game state after pushing blocks
+        self.render()  # Re-render the screen to show changes
+
 
     def check_squish(self, y, x):
-        """Check and handle squishing of enemies by the hero or blocks."""
+        """Check and handle squishing of enemies or eggs by the hero or blocks."""
         adjacent_positions = [
             (y + dy, x + dx)
             for dy in (-1, 0, 1)
@@ -505,6 +582,12 @@ class Game:
                 self.total_squished_enemies += 1
                 self.play_sound('squish.wav')
                 print(f"Enemy squished at {pos}")
+            elif pos in self.egg_positions:
+                self.egg_positions.pop(pos)
+                self.total_squished_enemies += 1
+                self.play_sound('squish.wav')
+                print(f"Egg squished at {pos}")
+
 
 
     def play_sound(self, filename):
@@ -547,11 +630,16 @@ class Game:
 
 
     def move_enemies(self):
-        """Move enemies towards the hero using BFS or randomly if no path is found."""
+        """Move enemies towards the hero using BFS or randomly if no path is found, excluding eggs."""
         new_positions = {}
         directions = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]
 
         for pos, enemy_char in self.enemy_positions.items():
+            if enemy_char == self.CHARACTER_MAP[self.EGG]:
+                # Eggs do not move but should stay in enemy_positions
+                new_positions[pos] = enemy_char
+                continue
+
             path = self.bfs_find_path(pos, self.hero_pos)
             if len(path) > 1:  # Path found, move towards hero
                 next_pos = path[1]
