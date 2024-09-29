@@ -1,7 +1,7 @@
 """
 #############################################################
 ##                                                         ##
-##                 S Q U I S H  v.1.1.0                    ##
+##                 S Q U I S H  v.1.2.0                    ##
 ##                                                         ##
 ##              (c) 2024 Michel Vuijlsteke                 ##
 ##                                                         ##
@@ -24,9 +24,13 @@ import pygame
 
 def get_resource_path(relative_path):
     """ Get the absolute path to the resource, works for both development and PyInstaller packaging. """
-    # `sys._MEIPASS` is a temporary folder created by PyInstaller
     base_path = getattr(sys, '_MEIPASS', os.path.abspath("."))
     return os.path.join(base_path, relative_path)
+
+def debug(msg):
+    """General-purpose debuging"""
+    with open("debug.log", "a", encoding="cp437") as log_file:
+        log_file.write(msg)
 
 class Game:
     """
@@ -36,44 +40,58 @@ class Game:
     UNMOVABLE_BLOCKS = 0.01
     INITIAL_NUM_ENEMIES = 1
     NUM_EGGS = 3
-    ENEMY_MOVE_DELAY = 1000
+    HUNTER_MOVE_DELAY = 1000
 
     HATCHING_TIME = 30  # Time after which eggs begin to hatch
-    PUSHER_RADIUS = 10  # Pushers activate when within this radius of the hero
+    CRUSHER_RADIUS = 10  # CRUSHERs activate when within this radius of the hero
 
     HERO = 1
-    ENEMY = 2
-    UNPUSHABLE_BLOCK = 3
+    HUNTER = 2
+    WALL = 3
     BLOCK = 4
     EGG = 5
-    PUSHER = 6
+    CRUSHER = 6
+    SENTINEL = 7
 
     CHARACTER_MAP = {
         HERO: "◄►",
-        ENEMY: "├┤",
-        UNPUSHABLE_BLOCK: "██",
+        HUNTER: "├┤",
+        WALL: "██",
         EGG: "○○",
-        PUSHER: "╬╬",
+        CRUSHER: "╬╬",
+        SENTINEL: "╟╢"
     }
 
     MOVABLE_BLOCK_CHARACTERS = ['░░', '▒▒' ]  # Different characters for movable blocks
 
+    """
+    CHARACTER_MAP = {
+        HERO: "<>",
+        HUNTER: "HH",
+        WALL: "WW",
+        EGG: "ee",
+        CRUSHER: "CC",
+        SENTINEL: "SS"
+    }
+
+    MOVABLE_BLOCK_CHARACTERS = ['bB', 'Bb' ]  
+    """
+
     COLOR_MAP = {
         HERO: curses.COLOR_CYAN,
-        ENEMY: curses.COLOR_RED,
-        UNPUSHABLE_BLOCK: curses.COLOR_YELLOW,
+        HUNTER: curses.COLOR_RED,
+        WALL: curses.COLOR_YELLOW,
         BLOCK: curses.COLOR_WHITE,
         EGG: curses.COLOR_MAGENTA,
-        PUSHER: curses.COLOR_RED,
+        CRUSHER: curses.COLOR_RED,
+        SENTINEL: curses.COLOR_GREEN,
     }
 
     def __init__(self, stdscr):
         self.stdscr = stdscr
         curses.curs_set(0)
         self.height, self.width = stdscr.getmaxyx()
-        self.height -= 2
         self.width //= 2
-        self.init_colors()
         self.hero_pos = (self.height // 2, self.width // 4)
         self.block_positions = {}
         self.enemy_positions = {}
@@ -94,9 +112,26 @@ class Game:
         self.init_game()
 
 
-        # Initialize pygame and the joystick
+    def init_game(self):
+        """Initialise game"""
+        self.init_pygame()
+        self.init_colors()
+        self.place_walls()
+        self.place_blocks()
+        self.place_enemies()
+        self.hero_pos = self.find_farthest_position()
+        self.render()
+        self.respawn_animation()
+
+    def init_pygame(self):
+        """Initialise pygame stuff"""
         pygame.init()
         pygame.joystick.init()
+        if pygame.joystick.get_count() > 0:
+            self.joystick = pygame.joystick.Joystick(0)
+            self.joystick.init()
+        else:
+            self.joystick = None
 
         pygame.mixer.init()
         self.sounds = {
@@ -104,49 +139,36 @@ class Game:
             "collision": pygame.mixer.Sound(get_resource_path("collision.wav")),
         }
 
-        if pygame.joystick.get_count() > 0:
-            self.joystick = pygame.joystick.Joystick(0)
-            self.joystick.init()
-        else:
-            self.joystick = None
-
-    def init_game(self):
-        """Places game elements on the board."""
-        self.place_blocks()
-        self.place_enemies()
-        self.hero_pos = self.find_farthest_position()
-        self.render()
-        self.respawn_animation()
-
     def init_colors(self):
-        """Initialize color pairs dynamically based on the COLOR_MAP."""
+        """Initialise color pairs dynamically based on the COLOR_MAP."""
         curses.start_color()
         for color_id, color in self.COLOR_MAP.items():
             curses.init_pair(color_id, color, curses.COLOR_BLACK)
 
+    def place_walls(self):
+        """Place unmovable border blocks"""
+        for x in range(self.width):  
+            self.block_positions[(0, x)] = self.CHARACTER_MAP[self.WALL]  
+            self.block_positions[(self.height-1, x)] = self.CHARACTER_MAP[self.WALL]
+        for y in range(self.height):  # Include the last row
+            self.block_positions[(y, 0)] = self.CHARACTER_MAP[self.WALL]
+            self.block_positions[(y, self.width-1)] = self.CHARACTER_MAP[self.WALL]  # Use self.width-1 for correct indexing
 
+        debug(f"Block positions: {sorted(self.block_positions.keys())}\n")
+       
     def place_blocks(self):
         """Randomly places blocks and a border of unmovable blocks on the grid."""
-        self.block_positions = {}
         
         # Ensure that we're working with the screen's usable width and height
         max_x = self.width - 1  # Adjusting so that we don't exceed screen width
-        max_y = self.height - 3  # Adjusting height to leave space for status lines
-
-        # Place unmovable border blocks
-        for x in range(max_x + 1):  # Avoid overflow by ensuring x stays within the range
-            self.block_positions[(0, x)] = self.CHARACTER_MAP[self.UNPUSHABLE_BLOCK]  # Top border
-            self.block_positions[(max_y, x)] = self.CHARACTER_MAP[self.UNPUSHABLE_BLOCK]  # Bottom border (above status lines)
-        for y in range(1, max_y):
-            self.block_positions[(y, 0)] = self.CHARACTER_MAP[self.UNPUSHABLE_BLOCK]  # Left border
-            self.block_positions[(y, max_x)] = self.CHARACTER_MAP[self.UNPUSHABLE_BLOCK]  # Right border
-
+        max_y = self.height - 1 # Adjusting height to leave space for status lines
+        
         # Place random movable blocks inside the borders
         for _ in range(int((max_x - 1) * (max_y - 1) * self.BLOCK_COVERAGE)):
             while True:
                 x = random.randint(1, max_x - 1)  # Ensure x is within valid range for rendering
                 y = random.randint(1, max_y - 1)
-                if (y, x) not in self.block_positions:
+                if (y, x) not in self.block_positions:                  
                     self.block_positions[(y, x)] = random.choice(self.MOVABLE_BLOCK_CHARACTERS)
                     break
 
@@ -157,18 +179,18 @@ class Game:
                 x = random.randint(1, max_x - 1)
                 y = random.randint(1, max_y - 1)
                 if (y, x) not in self.block_positions:
-                    self.block_positions[(y, x)] = self.CHARACTER_MAP[self.UNPUSHABLE_BLOCK]
+                    self.block_positions[(y, x)] = self.CHARACTER_MAP[self.WALL]
                     break
 
 
     def place_enemies(self):
         """Randomly places enemies within the bounds of the playing field."""
         self.enemy_positions = {}
-        self.egg_positions = {}  # Ensure this is initialized
-        self.hatching_times = {}  # Initialize the hatching times
+        self.egg_positions = {}  # Ensure this is initialised
+        self.hatching_times = {}  # Initialise the hatching times
 
         max_x = self.width - 2
-        max_y = self.height - 2
+        max_y = self.height 
 
         # Place eggs first
         for _ in range(self.NUM_EGGS):
@@ -178,7 +200,7 @@ class Game:
                 if (y, x) not in self.block_positions and (y, x) not in self.enemy_positions:
                     self.egg_positions[(y, x)] = self.CHARACTER_MAP[self.EGG]
                     self.enemy_positions[(y, x)] = self.CHARACTER_MAP[self.EGG]
-                    self.hatching_times[(y, x)] = time.time() + self.HATCHING_TIME  # Initialize hatching time
+                    self.hatching_times[(y, x)] = time.time() + self.HATCHING_TIME  # Initialise hatching time
                     break
 
         # Then place other enemies
@@ -186,10 +208,10 @@ class Game:
             while True:
                 x = random.randint(1, max_x - 1)
                 y = random.randint(1, max_y - 1)
+                
                 if (y, x) not in self.block_positions and (y, x) not in self.enemy_positions and (y, x) not in self.egg_positions:
-                    self.enemy_positions[(y, x)] = self.CHARACTER_MAP[self.ENEMY]
+                    self.enemy_positions[(y, x)] = self.CHARACTER_MAP[self.HUNTER]
                     break
-
 
 
     def find_hero_start_position(self):
@@ -218,11 +240,11 @@ class Game:
         return distances
 
     def find_farthest_position(self):
-        """Find the position farthest from any enemy or block, with enemies weighted more heavily."""
+        """Find the position farthest from any HUNTER or block, with enemies weighted more heavily."""
         # Occupied positions include both enemies and blocks
         occupied_positions = list(self.enemy_positions.keys()) + list(self.block_positions.keys())
         distances = self.calculate_weighted_distances(occupied_positions)
-
+        
         max_distance = -1
         farthest_position = None
 
@@ -236,8 +258,9 @@ class Game:
 
     def calculate_weighted_distances(self, occupied_positions):
         """Calculate a weighted distance from all occupied positions using BFS, giving more weight to enemies."""
-        # Initialize distances
-        distances = [[float('inf') for _ in range(self.width)] for _ in range(self.height)]
+        # Initialise distances
+        distances = [[float('inf') for _ in range(self.width+1)] for _ in range(self.height+1)]
+       
         queue = deque()
 
         # Start BFS from all occupied positions
@@ -264,9 +287,9 @@ class Game:
 
 
     def main_loop(self):
-        """Main game loop with strict enemy movement delay."""
+        """Main game loop with strict HUNTER movement delay."""
         try:
-            last_enemy_move_time = time.time()
+            last_hunter_move_time = time.time()
             last_hatch_check_time = time.time()  # Add this to check egg hatching
 
             self.stdscr.nodelay(True)  # Non-blocking getch()
@@ -282,10 +305,10 @@ class Game:
                     break
 
                 # Strictly check if it's time to move the enemies
-                time_since_last_move = current_time - last_enemy_move_time
-                if time_since_last_move >= self.ENEMY_MOVE_DELAY / 1000.0:
+                time_since_last_move = current_time - last_hunter_move_time
+                if time_since_last_move >= self.HUNTER_MOVE_DELAY / 1000.0:
                     self.move_enemies()
-                    last_enemy_move_time = current_time  # Reset the timer
+                    last_hunter_move_time = current_time  # Reset the timer
 
                 # Check if it's time to check egg hatching
                 time_since_last_hatch_check = current_time - last_hatch_check_time
@@ -308,13 +331,12 @@ class Game:
                 time.sleep(0.01)
 
         except Exception as e:
-            with open("debug.log", "a") as log_file:
-                log_file.write(f"Exception in main loop: {e}\n")
+            debug(f"Exception in main loop: {e}\n")
 
     def hatch_eggs(self):
         """Handle the hatching process for all eggs."""
         current_time = time.time()
-        new_pushers = {}
+        new_crushers = {}
 
         for pos, hatch_time in list(self.hatching_times.items()):
             if current_time >= hatch_time:
@@ -322,29 +344,29 @@ class Game:
                 if current_time >= hatch_time + random_hatch_time:
                     # Check if the egg is still present before attempting to hatch it
                     if pos in self.egg_positions:
-                        # Transform the egg into a pusher
-                        new_pushers[pos] = self.CHARACTER_MAP[self.PUSHER]
+                        # Transform the egg into a CRUSHER
+                        new_crushers[pos] = self.CHARACTER_MAP[self.CRUSHER]
 
         # Update the positions
-        for pos in new_pushers:
+        for pos, crusher in new_crushers.items():
             if pos in self.egg_positions:  # Double check that the egg is still there
                 self.egg_positions.pop(pos)
-                self.enemy_positions[pos] = new_pushers[pos]
+                self.enemy_positions[pos] = crusher
 
         # Remove hatched eggs from the hatching_times dictionary
-        self.hatching_times = {pos: hatch_time for pos, hatch_time in self.hatching_times.items() if pos not in new_pushers}
+        self.hatching_times = {pos: hatch_time for pos, hatch_time in self.hatching_times.items() if pos not in new_crushers}
 
     def remove_position(self, pos):
-        """Remove a position from both enemy and egg lists safely."""
+        """Remove a position from both HUNTER and egg lists safely."""
         if pos in self.enemy_positions:
             self.enemy_positions.pop(pos)
         if pos in self.egg_positions:
             self.egg_positions.pop(pos)
     
     def any_enemies_left(self):
-        """Check if there are any enemies left on the field, including eggs and pushers."""
+        """Check if there are any enemies left on the field, including eggs and CRUSHERs."""
         for char in self.enemy_positions.items():
-            if char in (self.CHARACTER_MAP[self.ENEMY], self.CHARACTER_MAP[self.EGG], self.CHARACTER_MAP[self.PUSHER]):
+            if char in (self.CHARACTER_MAP[self.HUNTER], self.CHARACTER_MAP[self.EGG], self.CHARACTER_MAP[self.CRUSHER]):
                 return True
         return False
 
@@ -356,17 +378,17 @@ class Game:
         # Display blocks
         for pos, char in self.block_positions.items():
             if 0 <= pos[0] < self.height - 2 and 0 <= pos[1] < self.width:
-                self.stdscr.addstr(pos[0], pos[1] * 2, char, curses.color_pair(self.UNPUSHABLE_BLOCK if char == self.CHARACTER_MAP[self.UNPUSHABLE_BLOCK] else self.BLOCK))
+                self.stdscr.addstr(pos[0], pos[1] * 2, char, curses.color_pair(self.WALL if char == self.CHARACTER_MAP[self.WALL] else self.BLOCK))
 
-        # Display enemies, including eggs and pushers
+        # Display enemies, including eggs and CRUSHERs
         for pos, char in self.enemy_positions.items():
             if 0 <= pos[0] < self.height - 2 and 0 <= pos[1] < self.width:
-                if char == self.CHARACTER_MAP[self.PUSHER]:
-                    self.stdscr.addstr(pos[0], pos[1] * 2, self.CHARACTER_MAP[self.PUSHER], curses.color_pair(self.PUSHER))
+                if char == self.CHARACTER_MAP[self.CRUSHER]:
+                    self.stdscr.addstr(pos[0], pos[1] * 2, self.CHARACTER_MAP[self.CRUSHER], curses.color_pair(self.CRUSHER))
                 elif char == self.CHARACTER_MAP[self.EGG]:
                     self.stdscr.addstr(pos[0], pos[1] * 2, self.CHARACTER_MAP[self.EGG], curses.color_pair(self.EGG))
                 else:
-                    self.stdscr.addstr(pos[0], pos[1] * 2, self.CHARACTER_MAP[self.ENEMY], curses.color_pair(self.ENEMY))
+                    self.stdscr.addstr(pos[0], pos[1] * 2, self.CHARACTER_MAP[self.HUNTER], curses.color_pair(self.HUNTER))
 
         # Display hero
         if 0 <= self.hero_pos[0] < self.height - 2 and 0 <= self.hero_pos[1] < self.width:
@@ -374,14 +396,14 @@ class Game:
 
         # Draw the unbreakable block line above the status line
         for x in range(self.width):
-            self.stdscr.addstr(self.height - 3, x * 2, self.CHARACTER_MAP[self.UNPUSHABLE_BLOCK], curses.color_pair(self.UNPUSHABLE_BLOCK))
+            self.stdscr.addstr(self.height - 3, x * 2, self.CHARACTER_MAP[self.WALL], curses.color_pair(self.WALL))
 
         # Calculate if there's room for the status line
         elapsed_time = int(self.paused_time + (time.time() - self.start_time) if not self.paused else self.paused_time)
         minutes = elapsed_time // 60
         seconds = elapsed_time % 60
-        enemy_count = len(self.enemy_positions)
-        status_line = f"Enemies: {enemy_count}  |  Time: {minutes:02}:{seconds:02}  |  Lives: {self.lives}  |  Score: {self.score} ({self.rank})"
+        hunter_count = len(self.enemy_positions)
+        status_line = f"Enemies: {hunter_count}  |  Time: {minutes:02}:{seconds:02}  |  Lives: {self.lives}  |  Score: {self.score} ({self.rank})"
 
         # Print status line in the last line of the available screen space
         self.stdscr.addstr(self.height - 2, 0, status_line.ljust(self.width * 2))
@@ -499,7 +521,7 @@ class Game:
                 return  # Return to the game if the player chooses not to quit
 
     def move_entity(self, entity_pos, dy, dx):
-        """Common method to move the hero or a pusher and handle block pushing."""
+        """Common method to move the hero or a CRUSHER and handle block pushing."""
         new_y = entity_pos[0] + dy
         new_x = entity_pos[1] + dx
         next_pos = (new_y, new_x)
@@ -509,7 +531,7 @@ class Game:
             # Check if the next position is a block that potentially needs pushing
             if next_pos in self.block_positions:
                 block_type = self.block_positions[next_pos]
-                if block_type == self.CHARACTER_MAP[self.UNPUSHABLE_BLOCK]:
+                if block_type == self.CHARACTER_MAP[self.WALL]:
                     return entity_pos  # Unmovable block, entity can't move it
                 elif self.can_push_blocks(new_y, new_x, dy, dx):
                     self.push_blocks(new_y, new_x, dy, dx)
@@ -526,11 +548,11 @@ class Game:
         self.hero_pos = self.move_entity(self.hero_pos, dy, dx)
         self.moves += 1
 
-    def move_pusher(self, pusher_pos, dy, dx):
-        """Move a pusher using the common move_entity method."""
-        new_pos = self.move_entity(pusher_pos, dy, dx)
-        if new_pos != pusher_pos:  # If the pusher actually moved
-            self.enemy_positions[new_pos] = self.enemy_positions.pop(pusher_pos)
+    def move_CRUSHER(self, CRUSHER_pos, dy, dx):
+        """Move a CRUSHER using the common move_entity method."""
+        new_pos = self.move_entity(CRUSHER_pos, dy, dx)
+        if new_pos != CRUSHER_pos:  # If the CRUSHER actually moved
+            self.enemy_positions[new_pos] = self.enemy_positions.pop(CRUSHER_pos)
 
 
     def can_push_blocks(self, block_y, block_x, dy, dx):
@@ -546,18 +568,18 @@ class Game:
         # Check if the block is unmovable
         if next_pos in self.block_positions:
             block_type = self.block_positions[next_pos]
-            if block_type == self.CHARACTER_MAP[self.UNPUSHABLE_BLOCK]:
+            if block_type == self.CHARACTER_MAP[self.WALL]:
                 return False  # Unmovable block, can't push
 
-        # Check if the next space contains an enemy or an egg
+        # Check if the next space contains an HUNTER or an egg
         if next_pos in self.enemy_positions or next_pos in self.egg_positions:
-            # If there's no block behind the enemy or egg, stop the push
+            # If there's no block behind the HUNTER or egg, stop the push
             behind_y = next_y + dy
             behind_x = next_x + dx
             if not (0 <= behind_y < self.height and 0 <= behind_x < self.width):
-                return False  # Stop if behind the enemy or egg is out of bounds
+                return False  # Stop if behind the HUNTER or egg is out of bounds
             if (behind_y, behind_x) not in self.block_positions:
-                return False  # Stop if there is no block behind the enemy or egg
+                return False  # Stop if there is no block behind the HUNTER or egg
 
         # If the next space contains another block, check if it can be pushed
         if next_pos in self.block_positions:
@@ -579,9 +601,9 @@ class Game:
 
         # Check if the last block can move
         if (current_y, current_x) in self.enemy_positions:
-            # Enemy is in the way, check if it can be squished
+            # HUNTER is in the way, check if it can be squished
             if (current_y + dy, current_x + dx) in self.block_positions:
-                # There's a block behind the enemy, squish it
+                # There's a block behind the HUNTER, squish it
                 self.enemy_positions.pop((current_y, current_x))
                 self.total_squished_enemies += 1
                 self.score += 2
@@ -619,11 +641,9 @@ class Game:
                 pygame.mixer.init()
                 pygame.mixer.Sound(self.sounds[sound_name]).play()
             else:
-                with open("debug.log", "a") as log_file:
-                    log_file.write(f"Sound '{sound_name}' not found in preloaded sounds.\n")
+                debug(f"Sound '{sound_name}' not found in preloaded sounds.\n")
         except Exception as e:
-            with open("debug.log", "a") as log_file:
-                log_file.write(f"Error playing sound {sound_name}: {e}\n")
+            debug(f"Error playing sound {sound_name}: {e}\n")
 
     def update_game_state(self):
         """Update the game state, primarily checking for collisions."""
@@ -658,13 +678,13 @@ class Game:
 
         return []  # Return an empty path if no path is found
 
-    def is_within_pusher_radius(self, pos):
-        """Check if a pusher is within the PUSHER_RADIUS of the hero."""
-        pusher_y, pusher_x = pos
+    def is_within_CRUSHER_radius(self, pos):
+        """Check if a CRUSHER is within the CRUSHER_RADIUS of the hero."""
+        CRUSHER_y, CRUSHER_x = pos
         hero_y, hero_x = self.hero_pos
-        distance = ((pusher_y - hero_y) ** 2 + (pusher_x - hero_x) ** 2) ** 0.5  # Calculate Euclidean distance
+        distance = ((CRUSHER_y - hero_y) ** 2 + (CRUSHER_x - hero_x) ** 2) ** 0.5  # Calculate Euclidean distance
 
-        return distance <= self.PUSHER_RADIUS
+        return distance <= self.CRUSHER_RADIUS
 
 
     def move_enemies(self):
@@ -672,19 +692,19 @@ class Game:
         new_positions = {}
         directions = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]
 
-        for pos, enemy_char in list(self.enemy_positions.items()):
-            if enemy_char == self.CHARACTER_MAP[self.EGG]:
+        for pos, HUNTER_char in list(self.enemy_positions.items()):
+            if HUNTER_char == self.CHARACTER_MAP[self.EGG]:
                 # Eggs do not move, just copy their position
-                new_positions[pos] = enemy_char
-            elif enemy_char == self.CHARACTER_MAP[self.PUSHER]:
-                # Pushers move towards the hero within a certain radius
-                if self.is_within_pusher_radius(pos):
+                new_positions[pos] = HUNTER_char
+            elif HUNTER_char == self.CHARACTER_MAP[self.CRUSHER]:
+                # CRUSHERs move towards the hero within a certain radius
+                if self.is_within_CRUSHER_radius(pos):
                     path = self.bfs_find_path(pos, self.hero_pos)
                     if len(path) > 1:  # Path found, move towards hero
                         next_pos = path[1]
                         dy, dx = next_pos[0] - pos[0], next_pos[1] - pos[1]
                         new_pos = self.move_entity(pos, dy, dx)
-                        new_positions[new_pos] = enemy_char
+                        new_positions[new_pos] = HUNTER_char
                     else:
                         # No path found, move randomly
                         random.shuffle(directions)
@@ -696,7 +716,7 @@ class Game:
                                 next_pos not in self.enemy_positions and
                                 next_pos not in self.egg_positions):
                                 new_pos = self.move_entity(pos, dy, dx)
-                                new_positions[new_pos] = enemy_char
+                                new_positions[new_pos] = HUNTER_char
                                 break
             else:
                 # Regular enemies move towards the hero intelligently
@@ -704,12 +724,12 @@ class Game:
                 if len(path) > 1:  # Path found, move towards hero
                     next_pos = path[1]
                     if next_pos not in self.block_positions and next_pos not in new_positions:
-                        new_positions[next_pos] = enemy_char
+                        new_positions[next_pos] = HUNTER_char
                     else:
-                        new_positions[pos] = enemy_char
+                        new_positions[pos] = HUNTER_char
                 else:
                     # No path found, stay in place
-                    new_positions[pos] = enemy_char
+                    new_positions[pos] = HUNTER_char
 
         self.enemy_positions = new_positions
 
@@ -721,7 +741,7 @@ class Game:
             self.handle_hero_collision()
 
     def handle_hero_collision(self):
-        """Handle what happens when the hero collides with an enemy."""
+        """Handle what happens when the hero collides with an HUNTER."""
         self.play_sound('collision')  # Play collision sound
 
         self.lives -= 1  # Decrease the number of lives
@@ -738,7 +758,6 @@ class Game:
     def respawn_animation(self):
         """Animate the hero's spawn with a cycle of characters and random colors."""
         
-        """
         animation_frames = ["  ", "░░", "▒▒", "▓▓", "  ", "░░", "▒▒", "▓▓"]
         
         # Possible colors for the animation (you can add more if you like)
@@ -757,8 +776,6 @@ class Game:
         # Finally, display the hero in the standard color
         self.stdscr.addstr(self.hero_pos[0], self.hero_pos[1] * 2, self.CHARACTER_MAP[self.HERO], curses.color_pair(self.HERO))
         self.stdscr.refresh()
-        """
-
 
     def end_game(self):
         """End the game when the player runs out of lives or quits, and save the score."""
@@ -909,7 +926,7 @@ class Game:
         for idx, entry in enumerate(high_scores[:max_scores_to_display]):
             name, score, date_time, _ = entry.split(',')
             date, time = date_time.split(' ')
-            color = curses.color_pair(self.UNPUSHABLE_BLOCK) if int(score) == self.score else curses.color_pair(self.BLOCK)
+            color = curses.color_pair(self.WALL) if int(score) == self.score else curses.color_pair(self.BLOCK)
             self.stdscr.addstr(start_y + 3 + idx, name_start_x, f"{str(idx + 1) + '.':>3} {name}", color)
             self.stdscr.addstr(start_y + 3 + idx, date_start_x, date, color)
             self.stdscr.addstr(start_y + 3 + idx, time_start_x, time, color)
@@ -987,8 +1004,7 @@ def main(stdscr):
         game.main_loop()
     except Exception as e:
         print(f"Unhandled exception: {e}")
-        with open("debug.log", "a") as log_file:
-            log_file.write(f"Unhandled exception: {e}\n")
+        debug(f"Unhandled exception: {e}\n")
 
 if __name__ == "__main__":
     curses.wrapper(main)
