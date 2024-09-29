@@ -21,7 +21,7 @@ In **Squish**, you control a character navigating through a maze filled with cre
 ## Controls
 
 - **Arrow Keys**: Move your character in four directions.
-- **<esc>**: Pause the game.
+- **esc**: Pause the game.
 - **q**: Quit the game
 
 ## Development Notes
