@@ -119,9 +119,21 @@ class Game:
         self.place_walls()
         self.place_blocks()
         self.place_enemies()
+        self.check_positions()
         self.hero_pos = self.find_farthest_position()
         self.render()
         self.respawn_animation()
+
+    # Debugging code to verify placements
+    def check_positions(self):
+        """Verify that no enemies or eggs are placed in walls."""
+        for pos in self.egg_positions.keys():
+            if pos in self.block_positions:
+                debug(f"Error: Egg generated in a wall at {pos}!")
+        for pos in self.enemy_positions.keys():
+            if pos in self.block_positions:
+                debug(f"Error: Enemy generated in a wall at {pos}!")
+
 
     def init_pygame(self):
         """Initialise pygame stuff"""
@@ -155,63 +167,86 @@ class Game:
             self.block_positions[(y, self.width-1)] = self.CHARACTER_MAP[self.WALL]  # Use self.width-1 for correct indexing
 
         debug(f"Block positions: {sorted(self.block_positions.keys())}\n")
-       
-    def place_blocks(self):
-        """Randomly places blocks and a border of unmovable blocks on the grid."""
-        
-        # Ensure that we're working with the screen's usable width and height
-        max_x = self.width - 1  # Adjusting so that we don't exceed screen width
-        max_y = self.height - 1 # Adjusting height to leave space for status lines
-        
-        # Place random movable blocks inside the borders
-        for _ in range(int((max_x - 1) * (max_y - 1) * self.BLOCK_COVERAGE)):
-            while True:
-                x = random.randint(1, max_x - 1)  # Ensure x is within valid range for rendering
-                y = random.randint(1, max_y - 1)
-                if (y, x) not in self.block_positions:                  
-                    self.block_positions[(y, x)] = random.choice(self.MOVABLE_BLOCK_CHARACTERS)
-                    break
 
-        # Add additional unmovable blocks randomly
-        num_unmovable_blocks = int((max_x * max_y) * self.UNMOVABLE_BLOCKS)
-        for _ in range(num_unmovable_blocks):
-            while True:
-                x = random.randint(1, max_x - 1)
-                y = random.randint(1, max_y - 1)
-                if (y, x) not in self.block_positions:
-                    self.block_positions[(y, x)] = self.CHARACTER_MAP[self.WALL]
-                    break
+
+    def place_blocks(self):
+        """Randomly places movable and unmovable blocks on the grid with a border of unmovable blocks."""
+        max_x = self.width - 2  # -2 to exclude the rightmost border
+        max_y = self.height - 2  # -2 to exclude the bottom border
+
+        # Calculate the total number of internal cells
+        total_internal_cells = max_x * max_y
+
+        # Calculate number of movable and unmovable blocks to place
+        num_movable_blocks = int(total_internal_cells * self.BLOCK_COVERAGE)
+        num_unmovable_blocks = int(total_internal_cells * self.UNMOVABLE_BLOCKS)
+
+        # Generate all internal positions (excluding borders)
+        internal_positions = [(y, x) for y in range(1, max_y + 1) for x in range(1, max_x + 1)]
+
+        # Randomly select positions for movable blocks
+        movable_block_positions = random.sample(internal_positions, num_movable_blocks)
+        for pos in movable_block_positions:
+            self.block_positions[pos] = random.choice(self.MOVABLE_BLOCK_CHARACTERS)
+
+        # Remove the chosen positions from internal positions
+        remaining_positions = set(internal_positions) - set(movable_block_positions)
+
+        # Convert remaining positions set to a list for random.sample
+        unmovable_block_positions = random.sample(list(remaining_positions), num_unmovable_blocks)
+        for pos in unmovable_block_positions:
+            self.block_positions[pos] = self.CHARACTER_MAP[self.WALL]
 
 
     def place_enemies(self):
-        """Randomly places enemies within the bounds of the playing field."""
+        """Randomly places enemies and eggs within the bounds of the playing field, ensuring they are not in walls or block positions."""
         self.enemy_positions = {}
-        self.egg_positions = {}  # Ensure this is initialised
-        self.hatching_times = {}  # Initialise the hatching times
+        self.egg_positions = {}
+        self.hatching_times = {}
 
-        max_x = self.width - 2
-        max_y = self.height 
+        # Define the playable area excluding borders
+        max_x = self.width - 2  # Exclude right border
+        max_y = self.height - 2  # Exclude bottom border
 
-        # Place eggs first
-        for _ in range(self.NUM_EGGS):
-            while True:
-                x = random.randint(1, max_x - 1)
-                y = random.randint(1, max_y - 1)
-                if (y, x) not in self.block_positions and (y, x) not in self.enemy_positions:
-                    self.egg_positions[(y, x)] = self.CHARACTER_MAP[self.EGG]
-                    self.enemy_positions[(y, x)] = self.CHARACTER_MAP[self.EGG]
-                    self.hatching_times[(y, x)] = time.time() + self.HATCHING_TIME  # Initialise hatching time
-                    break
+        # Generate a set of all internal positions (excluding borders)
+        all_positions = {(y, x) for y in range(1, max_y + 1) for x in range(1, max_x + 1)}
 
-        # Then place other enemies
-        for _ in range(self.level + self.INITIAL_NUM_ENEMIES):
-            while True:
-                x = random.randint(1, max_x - 1)
-                y = random.randint(1, max_y - 1)
-                
-                if (y, x) not in self.block_positions and (y, x) not in self.enemy_positions and (y, x) not in self.egg_positions:
-                    self.enemy_positions[(y, x)] = self.CHARACTER_MAP[self.HUNTER]
-                    break
+        # Create a set of blocked positions (walls, unmovable blocks, etc.)
+        blocked_positions = set(self.block_positions.keys())
+
+        # Double-check blocked positions for correct setup
+        debug(f"Total blocked positions: {len(blocked_positions)}")
+        debug(f"Blocked positions: {sorted(blocked_positions)}")
+
+        # Available positions are all internal positions minus any blocked positions
+        free_positions = all_positions - blocked_positions
+
+        # If there are not enough free positions, return early
+        if len(free_positions) < (self.NUM_EGGS + self.level + self.INITIAL_NUM_ENEMIES):
+            debug("Warning: Not enough free positions to place all enemies and eggs.")
+            return
+
+        # Randomly place eggs in the available free positions
+        egg_positions = random.sample(list(free_positions), self.NUM_EGGS)  # Convert set to list
+        for pos in egg_positions:
+            self.egg_positions[pos] = self.CHARACTER_MAP[self.EGG]
+            self.hatching_times[pos] = time.time() + self.HATCHING_TIME
+            self.enemy_positions[pos] = self.CHARACTER_MAP[self.EGG]  # Track as an "egg enemy"
+        
+        # Remove egg positions from free positions
+        free_positions -= set(egg_positions)
+
+        # Calculate the number of remaining enemies to place
+        num_enemies = self.level + self.INITIAL_NUM_ENEMIES
+
+        # Randomly place remaining enemies in the updated free positions
+        enemy_positions = random.sample(list(free_positions), num_enemies)  # Convert set to list
+        for pos in enemy_positions:
+            self.enemy_positions[pos] = self.CHARACTER_MAP[self.HUNTER]
+
+        # Run consistency check to validate placements
+        self.check_positions()  # Call the new diagnostic function
+
 
 
     def find_hero_start_position(self):
