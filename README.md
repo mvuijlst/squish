@@ -32,7 +32,7 @@ This project is a recreation from memory, so some details might differ from the 
 
 Clone the repository and run the main script:
 
-    bashCopy codepython squish.py
+    python squish.py
 
 Or, if you have the `.exe` file, simply double-click to start the game.
 
