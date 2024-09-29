@@ -15,8 +15,13 @@ import hashlib
 import datetime
 import base64
 from collections import deque
-import pygame
 import simpleaudio as sa
+import atexit
+import signal
+
+import os
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = 'True'
+import pygame
 class Game:
     """
     A class representing the game.
@@ -25,9 +30,10 @@ class Game:
     UNMOVABLE_BLOCKS = 0.01
     INITIAL_NUM_ENEMIES = 1
     NUM_EGGS = 3
-    ENEMY_MOVE_DELAY = 10000
+    ENEMY_MOVE_DELAY = 1000
 
-    HATCHING_TIME = 5  # Time after which eggs begin to hatch
+    HATCHING_TIME = 30  # Time after which eggs begin to hatch
+    PUSHER_RADIUS = 10  # Pushers activate when within this radius of the hero
 
     HERO = 1
     ENEMY = 2
@@ -81,9 +87,16 @@ class Game:
         self.move_cooldown = 0 # minimum time between hero moves (set to 0.1 for controller)
         self.init_game()
 
+
         # Initialize pygame and the joystick
         pygame.init()
         pygame.joystick.init()
+
+        pygame.mixer.init()
+        self.sounds = {
+            "squish": pygame.mixer.Sound("squish.wav"),
+            "collision": pygame.mixer.Sound("collision.wav"),
+        }
 
         if pygame.joystick.get_count() > 0:
             self.joystick = pygame.joystick.Joystick(0)
@@ -246,68 +259,82 @@ class Game:
 
     def main_loop(self):
         """Main game loop with strict enemy movement delay."""
-        last_enemy_move_time = time.time()
-        last_hatch_check_time = time.time()  # Add this to check egg hatching
+        try:
+            last_enemy_move_time = time.time()
+            last_hatch_check_time = time.time()  # Add this to check egg hatching
 
-        self.stdscr.nodelay(True)  # Non-blocking getch()
+            self.stdscr.nodelay(True)  # Non-blocking getch()
 
-        while True:
-            current_time = time.time()
+            while True:
+                current_time = time.time()
 
-            # Render the current state (without options line)
-            self.render()
+                # Render the current state (without options line)
+                self.render()
 
-            # Handle input without blocking the loop
-            if self.handle_input():
-                break
+                # Handle input without blocking the loop
+                if self.handle_input():
+                    break
 
-            # Strictly check if it's time to move the enemies
-            time_since_last_move = current_time - last_enemy_move_time
-            if time_since_last_move >= self.ENEMY_MOVE_DELAY / 1000.0:
-                self.move_enemies()
-                last_enemy_move_time = current_time  # Reset the timer
+                # Strictly check if it's time to move the enemies
+                time_since_last_move = current_time - last_enemy_move_time
+                if time_since_last_move >= self.ENEMY_MOVE_DELAY / 1000.0:
+                    self.move_enemies()
+                    last_enemy_move_time = current_time  # Reset the timer
 
-            # Check if it's time to check egg hatching
-            time_since_last_hatch_check = current_time - last_hatch_check_time
-            if time_since_last_hatch_check >= 1.0:  # Check hatching every second
-                self.hatch_eggs()
-                last_hatch_check_time = current_time
+                # Check if it's time to check egg hatching
+                time_since_last_hatch_check = current_time - last_hatch_check_time
+                if time_since_last_hatch_check >= 1.0:  # Check hatching every second
+                    self.hatch_eggs()
+                    last_hatch_check_time = current_time
 
-            # Update game state (e.g., collisions, etc.)
-            self.update_game_state()
+                # Update game state (e.g., collisions, etc.)
+                self.update_game_state()
 
-            # Check if the level is completed (no more enemies or eggs)
-            if not self.enemy_positions and not self.egg_positions:
-                duration = time.time() - self.start_time
-                if not self.display_level_completion(duration):
-                    break  # Player chose to exit
-                self.level += 1
-                self.init_game()  # Start a new level
+                # Check if the level is completed (no more enemies or eggs)
+                if not self.enemy_positions: # and not self.egg_positions:
+                    duration = time.time() - self.start_time
+                    if not self.display_level_completion(duration):
+                        break  # Player chose to exit
+                    self.level += 1
+                    self.init_game()  # Start a new level
 
-            # Short sleep to avoid maxing out CPU
-            time.sleep(0.01)
+                # Short sleep to avoid maxing out CPU
+                time.sleep(0.01)
+
+        except Exception as e:
+            with open("debug.log", "a") as log_file:
+                log_file.write(f"Exception in main loop: {e}\n")
 
     def hatch_eggs(self):
         """Handle the hatching process for all eggs."""
         current_time = time.time()
         new_pushers = {}
 
-        for pos, hatch_time in self.hatching_times.items():
+        for pos, hatch_time in list(self.hatching_times.items()):
             if current_time >= hatch_time:
                 random_hatch_time = random.uniform(0, self.HATCHING_TIME)
                 if current_time >= hatch_time + random_hatch_time:
-                    # Transform the egg into a pusher
-                    new_pushers[pos] = self.CHARACTER_MAP[self.PUSHER]
+                    # Check if the egg is still present before attempting to hatch it
+                    if pos in self.egg_positions:
+                        # Transform the egg into a pusher
+                        new_pushers[pos] = self.CHARACTER_MAP[self.PUSHER]
 
         # Update the positions
         for pos in new_pushers:
-            self.egg_positions.pop(pos)
-            self.enemy_positions[pos] = new_pushers[pos]
+            if pos in self.egg_positions:  # Double check that the egg is still there
+                self.egg_positions.pop(pos)
+                self.enemy_positions[pos] = new_pushers[pos]
 
         # Remove hatched eggs from the hatching_times dictionary
         self.hatching_times = {pos: hatch_time for pos, hatch_time in self.hatching_times.items() if pos not in new_pushers}
 
-
+    def remove_position(self, pos):
+        """Remove a position from both enemy and egg lists safely."""
+        if pos in self.enemy_positions:
+            self.enemy_positions.pop(pos)
+        if pos in self.egg_positions:
+            self.egg_positions.pop(pos)
+    
     def any_enemies_left(self):
         """Check if there are any enemies left on the field, including eggs and pushers."""
         for char in self.enemy_positions.items():
@@ -317,6 +344,7 @@ class Game:
 
     def render(self, show_options=False):
         """Renders the game state to the screen using characters from CHARACTER_MAP."""
+
         self.stdscr.clear()
 
         # Display blocks
@@ -464,30 +492,39 @@ class Game:
             elif key == ord('n'):
                 return  # Return to the game if the player chooses not to quit
 
-    def move_hero(self, dy, dx):
-        """Move the hero in the specified direction, handling block pushing."""
-        new_y = self.hero_pos[0] + dy
-        new_x = self.hero_pos[1] + dx
+    def move_entity(self, entity_pos, dy, dx):
+        """Common method to move the hero or a pusher and handle block pushing."""
+        new_y = entity_pos[0] + dy
+        new_x = entity_pos[1] + dx
         next_pos = (new_y, new_x)
 
         # If the next position is within bounds:
         if 0 <= new_y < self.height and 0 <= new_x < self.width:
-            # Check if the next position is a block or an egg that needs pushing
+            # Check if the next position is a block that potentially needs pushing
             if next_pos in self.block_positions:
                 block_type = self.block_positions[next_pos]
                 if block_type == self.CHARACTER_MAP[self.UNPUSHABLE_BLOCK]:
-                    return  # Unmovable block, hero can't move it
+                    return entity_pos  # Unmovable block, entity can't move it
                 elif self.can_push_blocks(new_y, new_x, dy, dx):
                     self.push_blocks(new_y, new_x, dy, dx)
-                    self.hero_pos = next_pos  # Move hero to the position of the first block
-                    self.moves += 1
-            elif next_pos in self.egg_positions:
-                return  # Eggs block movement, but don't harm the hero
+                    entity_pos = next_pos  # Move entity to the position of the first block
             else:
-                # Move hero if the space is free from blocks, eggs, and enemies
-                if next_pos not in self.enemy_positions:
-                    self.hero_pos = next_pos
-                    self.moves += 1
+                # Move entity if the space is free from blocks and enemies
+                if next_pos not in self.enemy_positions and next_pos not in self.egg_positions:
+                    entity_pos = next_pos
+
+        return entity_pos
+
+    def move_hero(self, dy, dx):
+        """Move the hero using the common move_entity method."""
+        self.hero_pos = self.move_entity(self.hero_pos, dy, dx)
+        self.moves += 1
+
+    def move_pusher(self, pusher_pos, dy, dx):
+        """Move a pusher using the common move_entity method."""
+        new_pos = self.move_entity(pusher_pos, dy, dx)
+        if new_pos != pusher_pos:  # If the pusher actually moved
+            self.enemy_positions[new_pos] = self.enemy_positions.pop(pusher_pos)
 
 
     def can_push_blocks(self, block_y, block_x, dy, dx):
@@ -541,18 +578,8 @@ class Game:
                 # There's a block behind the enemy, squish it
                 self.enemy_positions.pop((current_y, current_x))
                 self.total_squished_enemies += 1
-                self.play_sound('squish.wav')
-            else:
-                # No block behind the enemy, stop the block movement
-                return
-
-        # **Check for squishing eggs**
-        if (current_y, current_x) in self.egg_positions:
-            if (current_y + dy, current_x + dx) in self.block_positions:
-                # There's a block behind the egg, squish it
-                self.egg_positions.pop((current_y, current_x))
-                self.total_squished_enemies += 1
-                self.play_sound('squish.wav')
+                self.score += 2
+                self.play_sound('squish')
             else:
                 # No block behind the egg, stop the block movement
                 return
@@ -577,23 +604,20 @@ class Game:
         ]
 
         for pos in adjacent_positions:
-            if pos in self.enemy_positions:
-                self.enemy_positions.pop(pos)
-                self.total_squished_enemies += 1
-                self.play_sound('squish.wav')
-                print(f"Enemy squished at {pos}")
-            elif pos in self.egg_positions:
-                self.egg_positions.pop(pos)
-                self.total_squished_enemies += 1
-                self.play_sound('squish.wav')
-                print(f"Egg squished at {pos}")
+            self.remove_position(pos)
 
-
-
-    def play_sound(self, filename):
-        """Play a sound effect."""
-        wave_obj = sa.WaveObject.from_wave_file(filename)
-        wave_obj.play()
+    def play_sound(self, sound_name):
+        try:
+            if sound_name in self.sounds:
+                # Use pygame.mixer for sound playback
+                pygame.mixer.init()
+                pygame.mixer.Sound(self.sounds[sound_name]).play()
+            else:
+                with open("debug.log", "a") as log_file:
+                    log_file.write(f"Sound '{sound_name}' not found in preloaded sounds.\n")
+        except Exception as e:
+            with open("debug.log", "a") as log_file:
+                log_file.write(f"Error playing sound {sound_name}: {e}\n")
 
     def update_game_state(self):
         """Update the game state, primarily checking for collisions."""
@@ -628,37 +652,58 @@ class Game:
 
         return []  # Return an empty path if no path is found
 
+    def is_within_pusher_radius(self, pos):
+        """Check if a pusher is within the PUSHER_RADIUS of the hero."""
+        pusher_y, pusher_x = pos
+        hero_y, hero_x = self.hero_pos
+        distance = ((pusher_y - hero_y) ** 2 + (pusher_x - hero_x) ** 2) ** 0.5  # Calculate Euclidean distance
+
+        return distance <= self.PUSHER_RADIUS
+
 
     def move_enemies(self):
-        """Move enemies towards the hero using BFS or randomly if no path is found, excluding eggs."""
+        """Move enemies towards the hero using BFS for intelligent movement. Eggs do not move."""
         new_positions = {}
         directions = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]
 
-        for pos, enemy_char in self.enemy_positions.items():
+        for pos, enemy_char in list(self.enemy_positions.items()):
             if enemy_char == self.CHARACTER_MAP[self.EGG]:
-                # Eggs do not move but should stay in enemy_positions
+                # Eggs do not move, just copy their position
                 new_positions[pos] = enemy_char
-                continue
-
-            path = self.bfs_find_path(pos, self.hero_pos)
-            if len(path) > 1:  # Path found, move towards hero
-                next_pos = path[1]
-                if next_pos not in self.block_positions and next_pos not in new_positions:
-                    new_positions[next_pos] = enemy_char
-                else:
-                    new_positions[pos] = enemy_char
-            else:  # No path found, move randomly
-                random.shuffle(directions)
-                for dy, dx in directions:
-                    next_pos = (pos[0] + dy, pos[1] + dx)
-                    if (0 <= next_pos[0] < self.height and
-                        0 <= next_pos[1] < self.width and
-                        next_pos not in self.block_positions and
-                        next_pos not in new_positions):
+            elif enemy_char == self.CHARACTER_MAP[self.PUSHER]:
+                # Pushers move towards the hero within a certain radius
+                if self.is_within_pusher_radius(pos):
+                    path = self.bfs_find_path(pos, self.hero_pos)
+                    if len(path) > 1:  # Path found, move towards hero
+                        next_pos = path[1]
+                        dy, dx = next_pos[0] - pos[0], next_pos[1] - pos[1]
+                        new_pos = self.move_entity(pos, dy, dx)
+                        new_positions[new_pos] = enemy_char
+                    else:
+                        # No path found, move randomly
+                        random.shuffle(directions)
+                        for dy, dx in directions:
+                            next_pos = (pos[0] + dy, pos[1] + dx)
+                            if (0 <= next_pos[0] < self.height and
+                                0 <= next_pos[1] < self.width and
+                                next_pos not in self.block_positions and
+                                next_pos not in self.enemy_positions and
+                                next_pos not in self.egg_positions):
+                                new_pos = self.move_entity(pos, dy, dx)
+                                new_positions[new_pos] = enemy_char
+                                break
+            else:
+                # Regular enemies move towards the hero intelligently
+                path = self.bfs_find_path(pos, self.hero_pos)
+                if len(path) > 1:  # Path found, move towards hero
+                    next_pos = path[1]
+                    if next_pos not in self.block_positions and next_pos not in new_positions:
                         new_positions[next_pos] = enemy_char
-                        break
+                    else:
+                        new_positions[pos] = enemy_char
                 else:
-                    new_positions[pos] = enemy_char  # Stay in place if no move is possible
+                    # No path found, stay in place
+                    new_positions[pos] = enemy_char
 
         self.enemy_positions = new_positions
 
@@ -671,7 +716,7 @@ class Game:
 
     def handle_hero_collision(self):
         """Handle what happens when the hero collides with an enemy."""
-        self.play_sound('collision.wav')  # Play collision sound
+        self.play_sound('collision')  # Play collision sound
 
         self.lives -= 1  # Decrease the number of lives
 
@@ -686,6 +731,8 @@ class Game:
 
     def respawn_animation(self):
         """Animate the hero's spawn with a cycle of characters and random colors."""
+        
+        """
         animation_frames = ["  ", "░░", "▒▒", "▓▓", "  ", "░░", "▒▒", "▓▓"]
         
         # Possible colors for the animation (you can add more if you like)
@@ -704,6 +751,7 @@ class Game:
         # Finally, display the hero in the standard color
         self.stdscr.addstr(self.hero_pos[0], self.hero_pos[1] * 2, self.CHARACTER_MAP[self.HERO], curses.color_pair(self.HERO))
         self.stdscr.refresh()
+        """
 
 
     def end_game(self):
@@ -927,8 +975,14 @@ class Game:
 
 
 def main(stdscr):
-    game = Game(stdscr)
-    game.main_loop()
+
+    try:
+        game = Game(stdscr)
+        game.main_loop()
+    except Exception as e:
+        print(f"Unhandled exception: {e}")
+        with open("debug.log", "a") as log_file:
+            log_file.write(f"Unhandled exception: {e}\n")
 
 if __name__ == "__main__":
     curses.wrapper(main)
