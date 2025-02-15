@@ -1,6 +1,6 @@
 #############################################################
 ##                                                         ##
-##                 S Q U I S H  v2.3.0                     ##
+##                 S Q U I S H  v2.3.1                     ##
 ##                                                         ##
 ##       (c) 2025 Michel Vuijlsteke - Codepage Edition     ##
 ##                                                         ##
@@ -23,7 +23,7 @@ PLAYER = 1
 MOVEABLE_BLOCK = 2
 UNMOVEABLE_BLOCK = 3
 ENEMY = 4
-EGG = 5  # New entity type
+EGG = 5  # Treat as "unmoveable enemy" for collisions/pathfinding
 
 # Grid size: 40×25 cells; each cell is 32×32 pixels.
 GRID_WIDTH  = 40
@@ -53,6 +53,7 @@ TEXT_COLOR_DEFAULT = (0xee, 0xee, 0xee)  # for grid/level screens
 STATUS_BG_COLOR    = (0x00, 0x00, 0x00)  # black background for status line
 STATUS_FG_COLOR    = (0xee, 0xee, 0xee)  # light text for status line
 
+# Egg color transitions
 EGG_COLOR_0        = (0xfa, 0xe9, 0x01)  # #fae901 (0–75% done)
 EGG_COLOR_1        = (0xfa, 0x82, 0x01)  # #fa8201 (75–90% done)
 EGG_COLOR_FLASH1   = (0xfa, 0x01, 0x01)  # #fa0101 (>90%, flash color 1)
@@ -90,26 +91,23 @@ def get_egg_color(cell):
     Return the color of the egg based on how far along it is in hatching.
     cell is (EGG, total_hatch_time_ms, creation_tick).
     """
-    # current tick
     now = pygame.time.get_ticks()
-    egg_total_time = cell[1]  # total time required to hatch (ms)
-    egg_start = cell[2]       # creation (start) time in ms
+    egg_total_time = cell[1]
+    egg_start = cell[2]
     elapsed = now - egg_start
     if elapsed < 0:
         elapsed = 0
 
     progress = elapsed / egg_total_time  # fraction from 0.0 to 1.0 (or more)
 
-    # 0–75% => #fae901
     if progress < 0.75:
+        # 0–75% => #fae901
         return EGG_COLOR_0
-    # 75–90% => #fa8201
     elif progress < 0.90:
+        # 75–90% => #fa8201
         return EGG_COLOR_1
     else:
         # >90% => flashing #fa0101 and #ffffff
-        # Let's flash at 2 Hz (every 250 ms)
-        # If even multiple => color 1, else color 2
         flash_period = 250
         flashes = (now // flash_period) % 2
         if flashes == 0:
@@ -218,7 +216,7 @@ def show_highscores_screen(scores, screen):
     draw_text(screen, title, x, y, TEXT_COLOR_DEFAULT)
     y += 50
 
-    # Column headers (optional)
+    # Column headers
     headers = f"{'NAME':<15} {'DATE':<19} {'LVL':<4} {'SCORE':>6}"
     lw = len(headers) * CHAR_WIDTH * SCALE_X
     x = (total_width - lw) // 2
@@ -486,7 +484,7 @@ def game_over_screen(screen):
 
 def handle_collision(grid, screen):
     """
-    Called when an enemy collides with the player.
+    Called when the player attempts to move onto an enemy or egg.
     Decrement life. If lives <= 0, record highscore, game over, exit.
     Otherwise respawn the player.
     """
@@ -513,38 +511,51 @@ def move_player_direction(grid, direction, stats, screen):
     dx, dy = direction
     tx, ty = px + dx, py + dy
     t = cell_type(grid[ty][tx])
-    if t == EMPTY or t == EGG:  # Player can step onto eggs? (Optional choice)
-        # If we want eggs to block movement, remove 't == EGG' from this check
+    
+    if t == EMPTY:
+        # Normal move
         grid[py][px] = EMPTY
         grid[ty][tx] = PLAYER
     elif t == MOVEABLE_BLOCK:
         grid = push_blocks(grid, (px, py), direction, stats, screen)
-    elif t == ENEMY:
+    elif t == ENEMY or t == EGG:
+        # Collide => lose a life
         handle_collision(grid, screen)
+    # If it's UNMOVEABLE_BLOCK, do nothing (blocked).
+    
     return grid
 
 def push_blocks(grid, start_pos, direction, stats, screen):
+    """
+    Attempt to push a chain of moveable blocks. If the final cell is an EGG or ENEMY
+    and pinned, squish it. Eggs are worth 1*level points; enemies 2*level each (handled at level-end).
+    """
     x, y = start_pos
     dx, dy = direction
     chain = []
     cx, cy = x + dx, y + dy
-    # Gather all consecutive moveable blocks
+    
+    # Gather all consecutive moveable blocks in front of the player
     while cell_type(grid[cy][cx]) == MOVEABLE_BLOCK:
         chain.append((cx, cy))
         cx += dx
         cy += dy
+
     t = cell_type(grid[cy][cx])
-    # If final spot is EMPTY (or EGG?), push chain forward
-    if t == EMPTY or t == EGG:
+
+    # If final spot is empty, push chain forward
+    if t == EMPTY:
         for bx, by in reversed(chain):
             grid[by+dy][bx+dx] = grid[by][bx]
             grid[by][bx] = EMPTY
         grid[y+dy][x+dx] = PLAYER
         grid[y][x] = EMPTY
+
     # If final spot is ENEMY, squish it if next cell is blocked
     elif t == ENEMY:
         nx, ny = cx + dx, cy + dy
         if cell_type(grid[ny][nx]) in [MOVEABLE_BLOCK, UNMOVEABLE_BLOCK]:
+            # Squish the enemy
             for bx, by in reversed(chain):
                 grid[by+dy][bx+dx] = grid[by][bx]
                 grid[by][bx] = EMPTY
@@ -552,12 +563,29 @@ def push_blocks(grid, start_pos, direction, stats, screen):
             grid[y][x] = EMPTY
             stats['enemies_eliminated'] += 1
             sounds['squish'].play()
+
+    # If final spot is EGG, do the same "pin" check and destroy the egg
+    elif t == EGG:
+        nx, ny = cx + dx, cy + dy
+        if cell_type(grid[ny][nx]) in [MOVEABLE_BLOCK, UNMOVEABLE_BLOCK]:
+            # Destroy the egg
+            for bx, by in reversed(chain):
+                grid[by+dy][bx+dx] = grid[by][bx]
+                grid[by][bx] = EMPTY
+            grid[y+dy][x+dx] = PLAYER
+            grid[y][x] = EMPTY
+            stats['eggs_destroyed'] += 1
+            sounds['squish'].play()
+
     return grid
 
 # -----------------------------------------------------------
 # 12) ENEMY AI: A* PATHFINDING AND RANDOM MOVEMENT
 # -----------------------------------------------------------
 def a_star_path(grid, start, goal):
+    """
+    8-direction A* path. We cannot pass through EGG or ENEMY or blocks.
+    """
     def heuristic(a, b):
         return max(abs(a[0]-b[0]), abs(a[1]-b[1]))
     
@@ -584,9 +612,10 @@ def a_star_path(grid, start, goal):
                 ny = current[1] + ddy
                 if not (0 <= nx < GRID_WIDTH and 0 <= ny < GRID_HEIGHT):
                     continue
-                # We can move through EMPTY or EGG or directly onto the player's cell (goal)
+                # We can only move through EMPTY or directly onto the player's cell (goal).
+                # EGG acts like a blocking enemy, so do not pass.
                 t = cell_type(grid[ny][nx])
-                if (nx, ny) != goal and t not in [EMPTY, EGG]:
+                if (nx, ny) != goal and t != EMPTY:
                     continue
                 tentative = g_score[current] + 1
                 if (nx, ny) in g_score and tentative >= g_score[(nx, ny)]:
@@ -598,6 +627,9 @@ def a_star_path(grid, start, goal):
     return []
 
 def update_enemies(grid, move_accuracy, screen):
+    """
+    Move each enemy via A* or random fallback, but cannot step on EGG (blocks movement).
+    """
     player_pos = get_player_position(grid)
     if not player_pos:
         return grid
@@ -616,6 +648,7 @@ def update_enemies(grid, move_accuracy, screen):
         path = a_star_path(grid, (ex, ey), player_pos)
         moved = False
         
+        # Attempt to follow path if found
         if len(path) >= 2 and random.random() < (move_accuracy / 100.0):
             nx, ny = path[1]
             t = cell_type(grid[ny][nx])
@@ -623,13 +656,12 @@ def update_enemies(grid, move_accuracy, screen):
                 handle_collision(grid, screen)
                 collision_occurred = True
                 continue
-            elif t in [EMPTY, EGG]:
-                # If an enemy walks onto an EGG, we might optionally destroy the egg
-                # or just walk over it. For now, let's just overwrite it (like stepping on it).
+            elif t == EMPTY:
                 grid[ny][nx] = ENEMY
                 grid[ey][ex] = EMPTY
                 moved = True
         
+        # Random fallback (cannot step onto EGG)
         if not moved:
             mv = random.choice([
                 (-1, -1), (0, -1), (1, -1),
@@ -644,7 +676,7 @@ def update_enemies(grid, move_accuracy, screen):
                     handle_collision(grid, screen)
                     collision_occurred = True
                     continue
-                elif t in [EMPTY, EGG]:
+                elif t == EMPTY:
                     grid[ny][nx] = ENEMY
                     grid[ey][ex] = EMPTY
     return grid
@@ -664,7 +696,7 @@ def update_eggs(grid):
                 egg_total_time = c[1]
                 egg_start = c[2]
                 if now - egg_start >= egg_total_time:
-                    # Hatch into an ENEMY
+                    # Hatch into ENEMY
                     grid[y][x] = ENEMY
     return grid
 
@@ -675,7 +707,7 @@ def get_level_params(level):
     """
     Return (num_hunters, move_speed, move_accuracy, num_eggs, avg_egg_hatch_ms)
     """
-    # old logic for hunters, speeds
+    # Previous logic
     if level == 1:
         hunters, move_speed, move_accuracy = 3, 1000, 50
     elif level == 2:
@@ -703,7 +735,7 @@ def get_level_params(level):
         move_speed = 700
         move_accuracy = 70
 
-    # For eggs: from level 3 onwards, 2 eggs, average hatch time ~ 60000 ms
+    # Eggs: from level 3 onward, 2 eggs, average 60s
     if level >= 3:
         num_eggs = 2
         avg_egg_hatch_ms = 60000
@@ -715,8 +747,7 @@ def get_level_params(level):
 
 def generate_level(num_enemies, num_eggs, avg_egg_hatch_ms):
     """
-    Create the grid, place the given number of enemies, plus the given number of eggs
-    with a random hatching time in [avg*0.9, avg*1.1].
+    Create the grid, place enemies, place eggs with random hatch times ±10%.
     """
     grid = [[EMPTY for _ in range(GRID_WIDTH)] for _ in range(GRID_HEIGHT)]
     # Border walls
@@ -753,8 +784,7 @@ def generate_level(num_enemies, num_eggs, avg_egg_hatch_ms):
         rx = random.randint(1, GRID_WIDTH-2)
         ry = random.randint(1, GRID_HEIGHT-2)
         if cell_type(grid[ry][rx]) == EMPTY:
-            # random hatching time in [avg*0.9, avg*1.1]
-            factor = 0.9 + 0.2 * random.random()  # range 0.9 to 1.1
+            factor = 0.9 + 0.2 * random.random()  # 0.9..1.1
             hatch_time = int(avg_egg_hatch_ms * factor)
             grid[ry][rx] = (EGG, hatch_time, now)
             egg_positions.append((rx, ry))
@@ -765,13 +795,22 @@ def generate_level(num_enemies, num_eggs, avg_egg_hatch_ms):
 # 14) LEVEL PLAY FUNCTION AND MAIN LOOP
 # -----------------------------------------------------------
 def play_level(level, screen, clock, cumulative_score):
+    """
+    Returns (moves, enemies_eliminated, time_taken, level_score) for this level.
+    """
     global current_score, current_level
     hunters, move_speed, move_accuracy, egg_count, avg_egg_time = get_level_params(level)
     current_level = level
     current_score = cumulative_score
     grid = generate_level(hunters, egg_count, avg_egg_time)
     place_player_best_spot(grid)
-    stats = {'moves': 0, 'enemies_eliminated': 0}
+
+    # Track stats
+    stats = {
+        'moves': 0,
+        'enemies_eliminated': 0,
+        'eggs_destroyed': 0
+    }
 
     level_start_time = pygame.time.get_ticks()
     enemy_update_interval = move_speed
@@ -806,12 +845,12 @@ def play_level(level, screen, clock, cumulative_score):
                         stats['moves'] += 1
 
         current_time = pygame.time.get_ticks()
-        # Update enemies if the interval has passed
+        # Enemy AI update
         if current_time - last_enemy_update >= enemy_update_interval:
             grid = update_enemies(grid, move_accuracy, screen)
             last_enemy_update = current_time
 
-        # Always update eggs each frame
+        # Egg incubation update
         grid = update_eggs(grid)
 
         draw_grid(screen, grid)
@@ -819,20 +858,22 @@ def play_level(level, screen, clock, cumulative_score):
         pygame.display.flip()
         clock.tick(10)
 
-        # Check if all enemies are gone (i.e., none left)
+        # Check if all enemies are gone
         enemy_exists = any(cell_type(c) == ENEMY for row in grid for c in row)
-        if not enemy_exists:
-            # Also check if any eggs remain that can still hatch
-            egg_exists = any(cell_type(c) == EGG for row in grid for c in row)
-            # If no active enemies and no eggs remain, the level is complete
-            if not egg_exists:
-                break
+        # Also check if any eggs remain
+        egg_exists = any(cell_type(c) == EGG for row in grid for c in row)
 
-    # Level complete
+        # If no enemies and no eggs, level is complete
+        if not enemy_exists and not egg_exists:
+            break
+
     level_end_time = pygame.time.get_ticks()
     time_taken = (level_end_time - level_start_time) // 1000
-    stats['enemies_eliminated'] = hunters  # we assume all were eliminated or level ended
-    level_score = stats['enemies_eliminated'] * (2 * level)
+
+    # Now compute this level's score
+    # Enemies: 2 * level each, Eggs: 1 * level each
+    level_score = stats['enemies_eliminated'] * (2 * level) + stats['eggs_destroyed'] * (1 * level)
+
     return stats['moves'], stats['enemies_eliminated'], time_taken, level_score
 
 def show_level_complete_screen(screen, level, moves, enemies, time_taken, level_score, cumulative_score):
@@ -843,7 +884,7 @@ def show_level_complete_screen(screen, level, moves, enemies, time_taken, level_
         f"Enemies Eliminated: {enemies}",
         f"Moves Taken: {moves}",
         f"Time Taken: {time_taken} seconds",
-        f"Score: {level_score}",
+        f"Score This Level: {level_score}",
         f"Cumulative Score: {cumulative_score}",
         "Press <space> to continue"
     ]
