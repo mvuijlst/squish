@@ -1,9 +1,9 @@
 """
 #############################################################
 ##                                                         ##
-##                 S Q U I S H  v2.2.5                     ##
+##                 S Q U I S H  v2.2.7                     ##
 ##                                                         ##
-##        (c) 2025 Michel Vuijlsteke - Codepage Edition    ##
+##       (c) 2025 Michel Vuijlsteke - Codepage Edition      ##
 ##                                                         ##
 #############################################################
 """
@@ -11,7 +11,7 @@
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 
-import pygame, random, sys
+import pygame, random, sys, datetime
 from pygame.locals import *
 from heapq import heappush, heappop
 
@@ -26,20 +26,20 @@ MOVEABLE_BLOCK = 2
 UNMOVEABLE_BLOCK = 3
 ENEMY = 4
 
-# Grid size: 40×25 cells. Each cell is 32×32 pixels.
+# Grid size: 40×25 cells; each cell is 32×32 pixels.
 GRID_WIDTH  = 40
 GRID_HEIGHT = 25
 CELL_SIZE   = 32
 STATUS_HEIGHT = CELL_SIZE  # Extra vertical space for the status line
 
 # Sprite sheet parameters:
-# Our code-page 437 sprite sheet is 8×16 glyphs, scaled by 2 => 16×32 per glyph.
+# Our code page 437 sprite sheet contains glyphs that are 8×16 pixels.
 CHAR_WIDTH  = 8
 CHAR_HEIGHT = 16
+# We scale both dimensions by 2 so that each glyph becomes 16×32.
 SCALE_X = 2
 SCALE_Y = 2
-
-# The sheet has 16 cols × 16 rows = 256 glyphs total.
+# Each cell is rendered as 2 glyphs wide (2 * 16 = 32) and 1 glyph tall (32).
 SHEET_COLS = 16
 SHEET_ROWS = 16
 
@@ -50,9 +50,9 @@ PLAYER_COLOR       = (0x59, 0xe1, 0xe3)  # #59e1e3
 WALL_COLOR         = (0xff, 0xea, 0x16)  # #ffea16
 HUNTER_COLOR       = (0xff, 0x16, 0xb0)  # #ff16b0
 BLOCK_COLOR        = (0xee, 0xee, 0xee)  # #eeeeee
-TEXT_COLOR_DEFAULT = (0xee, 0xee, 0xee)  # for grid/level text
-STATUS_BG_COLOR    = (0x00, 0x00, 0x00)  # black background for the status line
-STATUS_FG_COLOR    = (0xee, 0xee, 0xee)  # light text color on black
+TEXT_COLOR_DEFAULT = (0xee, 0xee, 0xee)  # for grid/level screens
+STATUS_BG_COLOR    = (0x00, 0x00, 0x00)  # black background for status line
+STATUS_FG_COLOR    = (0xee, 0xee, 0xee)  # light text for status line
 
 # -----------------------------------------------------------
 # 3) GLOBAL RESOURCES
@@ -60,6 +60,8 @@ STATUS_FG_COLOR    = (0xee, 0xee, 0xee)  # light text color on black
 sprite_sheet = None
 sounds = {}
 lives = 3
+current_level = 0
+current_score = 0
 
 # -----------------------------------------------------------
 # 4) HELPER FUNCTIONS
@@ -80,7 +82,7 @@ def tint_surface(surface, tint_color):
     return tinted
 
 def get_cell_color(cell):
-    """Return the color to tint a cell's glyph(s) based on its type."""
+    """Return the tint color for a cell based on its type."""
     t = cell_type(cell)
     if t == PLAYER:
         return PLAYER_COLOR
@@ -94,8 +96,143 @@ def get_cell_color(cell):
         return (0, 0, 0)
 
 # -----------------------------------------------------------
-# 5) SPRITE-SHEET TEXT RENDERING FUNCTIONS
+# 5a) HIGH SCORE HANDLING (XOR-based "encryption")
 # -----------------------------------------------------------
+SCORE_FILE = "highscores.dat"
+
+def encrypt_xor(data: bytes, key: int = 0xAA) -> bytes:
+    return bytes(b ^ key for b in data)
+
+def decrypt_xor(data: bytes, key: int = 0xAA) -> bytes:
+    return encrypt_xor(data, key)
+
+def load_highscores() -> list:
+    """Load high scores from SCORE_FILE. Each line: date|level|score|name"""
+    if not os.path.exists(SCORE_FILE):
+        return []
+    try:
+        with open(SCORE_FILE, "rb") as f:
+            encrypted = f.read()
+        decrypted = decrypt_xor(encrypted, 0xAA).decode("utf-8", errors="ignore")
+        lines = decrypted.strip().split("\n")
+        scores = []
+        for line in lines:
+            parts = line.split("|")
+            if len(parts) == 4:
+                dt_str, lvl_str, scr_str, name_str = parts
+                scores.append((int(scr_str), dt_str, int(lvl_str), name_str))
+        scores.sort(key=lambda s: s[0], reverse=True)
+        return scores
+    except:
+        return []
+
+def save_highscores(scores: list):
+    """Save the top 20 high scores to SCORE_FILE."""
+    scores = sorted(scores, key=lambda s: s[0], reverse=True)[:20]
+    lines = [f"{dt}|{lvl}|{scr}|{name}" for (scr, dt, lvl, name) in scores]
+    data = "\n".join(lines)
+    encrypted = encrypt_xor(data.encode("utf-8"), 0xAA)
+    with open(SCORE_FILE, "wb") as f:
+        f.write(encrypted)
+
+def ask_player_name() -> str:
+    """Prompt the player for their name and return it."""
+    name = ""
+    screen = pygame.display.get_surface()
+    clock = pygame.time.Clock()
+    while True:
+        for evt in pygame.event.get():
+            if evt.type == QUIT:
+                pygame.quit()
+                sys.exit()
+            elif evt.type == KEYDOWN:
+                if evt.key == K_RETURN:
+                    return name.strip() or "anonymous"
+                elif evt.key == K_BACKSPACE:
+                    name = name[:-1]
+                elif evt.key == K_ESCAPE:
+                    return "anonymous"
+                else:
+                    ch = evt.unicode
+                    if ch.isprintable():
+                        name += ch
+        screen.fill((0, 0, 0))
+        draw_text(screen, "High score! Enter your name:", 50, 100, TEXT_COLOR_DEFAULT)
+        draw_text(screen, name, 50, 140, TEXT_COLOR_DEFAULT)
+        pygame.display.flip()
+        clock.tick(15)
+
+def maybe_record_highscore(total_score: int, level: int):
+    """If total_score qualifies for the top 20, ask for name and record the score."""
+    scores = load_highscores()
+    if len(scores) < 20 or total_score > scores[-1][0]:
+        name = ask_player_name()
+        dt_str = datetime.datetime.now().isoformat(timespec="seconds")
+        scores.append((total_score, dt_str, level, name))
+        save_highscores(scores)
+
+# -----------------------------------------------------------
+# 5b) PAUSE AND QUIT CONFIRMATION
+# -----------------------------------------------------------
+def pause_game(screen):
+    """Pause the game and display a pause message until resumed."""
+    paused = True
+    clock = pygame.time.Clock()
+    while paused:
+        for event in pygame.event.get():
+            if event.type == QUIT:
+                pygame.quit()
+                sys.exit()
+            elif event.type == KEYDOWN:
+                if event.key in (K_q, ord('q')):
+                    if quit_confirm(screen):
+                        maybe_record_highscore(current_score, current_level)
+                        pygame.quit()
+                        sys.exit()
+                elif event.key == K_SPACE:
+                    paused = False
+        screen.fill((0, 0, 0))
+        lines = ["Paused", "", "<q> to quit   <space> to continue"]
+        total_w = GRID_WIDTH * (CHAR_WIDTH * SCALE_X * 2)
+        y = 100
+        for line in lines:
+            lw = len(line) * CHAR_WIDTH * SCALE_X
+            x = (total_w - lw) // 2
+            draw_text(screen, line, x, y, TEXT_COLOR_DEFAULT)
+            y += 40
+        pygame.display.flip()
+        clock.tick(10)
+
+def quit_confirm(screen) -> bool:
+    """Display a quit confirmation prompt; return True if confirmed, else False."""
+    clock = pygame.time.Clock()
+    while True:
+        for event in pygame.event.get():
+            if event.type == QUIT:
+                pygame.quit()
+                sys.exit()
+            elif event.type == KEYDOWN:
+                if event.key in (K_y, ord('y')):
+                    return True
+                elif event.key in (K_n, ord('n')):
+                    return False
+                else:
+                    return False
+        screen.fill((0, 0, 0))
+        msg = "Do you really want to quit? (y/n)"
+        total_w = GRID_WIDTH * (CHAR_WIDTH * SCALE_X * 2)
+        lw = len(msg) * CHAR_WIDTH * SCALE_X
+        x = (total_w - lw) // 2
+        y = 120
+        draw_text(screen, msg, x, y, TEXT_COLOR_DEFAULT)
+        pygame.display.flip()
+        clock.tick(10)
+
+# -----------------------------------------------------------
+# 6c) SPRITE-SHEET TEXT RENDERING FUNCTIONS
+# (load_sprite_sheet, draw_char, draw_text already defined above)
+# -----------------------------------------------------------
+
 def load_sprite_sheet(filename):
     """Load the code-page 437 sprite sheet from file."""
     global sprite_sheet
@@ -138,18 +275,18 @@ def draw_text(surface, text, x, y, color):
         offset_x += CHAR_WIDTH * SCALE_X
 
 # -----------------------------------------------------------
-# 6) ENTITY MAPPINGS (using code-page 437 glyphs)
+# 7) ENTITY MAPPINGS (Code Page 437 glyphs)
 # -----------------------------------------------------------
-WALL_CHARS    = "\xDB\xDB"  # Wall: ██
-BLOCK0_CHARS  = "\xB0\xB0"  # Moveable block variant 0: ░░
-BLOCK1_CHARS  = "\xB1\xB1"  # Moveable block variant 1: ▒▒
-BLOCK2_CHARS  = "\xB2\xB2"  # Moveable block variant 2: ▓▓
-PLAYER_CHARS  = "\x11\x10"  # Player: ◄►
-HUNTER_CHARS  = "\xC3\xB4"  # Hunter: ├┤
+WALL_CHARS    = "\xDB\xDB"  # ██
+BLOCK0_CHARS  = "\xB0\xB0"  # ░░
+BLOCK1_CHARS  = "\xB1\xB1"  # ▒▒
+BLOCK2_CHARS  = "\xB2\xB2"  # ▓▓
+PLAYER_CHARS  = "\x11\x10"  # ◄►
+HUNTER_CHARS  = "\xC3\xB4"  # ├┤
 EMPTY_CHARS   = "  "
 
 def get_cell_string(cell):
-    """Return the 2-character string representing this cell."""
+    """Return the 2-character string representing the cell."""
     t = cell_type(cell)
     if t == EMPTY:
         return EMPTY_CHARS
@@ -171,14 +308,11 @@ def get_cell_string(cell):
         return "??"
 
 # -----------------------------------------------------------
-# 7) DRAWING FUNCTIONS: GRID AND STATUS LINE
+# 8) DRAWING FUNCTIONS: GRID AND STATUS LINE
 # -----------------------------------------------------------
 def draw_grid(screen, grid):
-    """
-    Draw the game grid using sprite-sheet–rendered glyphs.
-    Each cell is 2 glyphs wide and 1 glyph tall (32×32 pixels).
-    """
-    screen.fill((0, 0, 0))  # Background is black
+    """Draw the game grid using sprite-sheet rendered glyphs."""
+    screen.fill((0, 0, 0))
     for y in range(GRID_HEIGHT):
         for x in range(GRID_WIDTH):
             cell_str = get_cell_string(grid[y][x])
@@ -189,34 +323,26 @@ def draw_grid(screen, grid):
 
 def draw_status_line(screen, grid, level_start_time, lives, level, cumulative_score, initial_hunters):
     """
-    Draw a status line at the bottom of the screen.
-    Background: black (#000000)
-    Text: #eeeeee
-    Uses U+0xB3 (│) as the separator.
+    Draw a status line at the bottom.
+    Background: STATUS_BG_COLOR (black), Text: STATUS_FG_COLOR (#eeeeee),
+    using U+0xB3 (│) as the separator.
     """
     total_width = GRID_WIDTH * (CHAR_WIDTH * SCALE_X * 2)
-    # Fill the status line area black
     pygame.draw.rect(screen, STATUS_BG_COLOR, (0, GRID_HEIGHT * (CHAR_HEIGHT * SCALE_Y), total_width, STATUS_HEIGHT))
-
     elapsed = (pygame.time.get_ticks() - level_start_time) // 1000
     minutes, seconds = divmod(elapsed, 60)
     time_str = f"{minutes:02}:{seconds:02}"
     enemy_count = sum(1 for row in grid for cell in row if cell_type(cell) == ENEMY)
     level_score = (initial_hunters - enemy_count) * (2 * level)
-    sep = chr(0xB3)  # U+0xB3 = │
-    status_text = (
-        f"Enemies: {enemy_count}  {sep}  "
-        f"Time: {time_str}  {sep}  "
-        f"Lives: {lives}  {sep}  "
-        f"Score: {level_score} ({cumulative_score})"
-    )
+    sep = chr(0xB3)  # │
+    status_text = (f"Enemies: {enemy_count}  {sep}  Time: {time_str}  {sep}  "
+                   f"Lives: {lives}  {sep}  Score: {level_score} ({cumulative_score})")
     text_x = 5
     text_y = GRID_HEIGHT * (CHAR_HEIGHT * SCALE_Y) + (STATUS_HEIGHT - CHAR_HEIGHT * SCALE_Y) // 2
-    # We'll render the text in #eeeeee on black.
-    draw_text(screen, status_text, text_x, text_y, (0xee, 0xee, 0xee))
+    draw_text(screen, status_text, text_x, text_y, STATUS_FG_COLOR)
 
 # -----------------------------------------------------------
-# 8) GAME LOGIC FUNCTIONS
+# 9) PLAYER SPAWN FUNCTIONS
 # -----------------------------------------------------------
 def get_player_position(grid):
     for y in range(GRID_HEIGHT):
@@ -225,16 +351,45 @@ def get_player_position(grid):
                 return (x, y)
     return None
 
+def place_player_best_spot(grid):
+    """
+    Place the player in the cell that is maximally far from enemies and, among ties,
+    maximally far from any blocks.
+    """
+    enemies = []
+    blocks = []
+    for y in range(GRID_HEIGHT):
+        for x in range(GRID_WIDTH):
+            t = cell_type(grid[y][x])
+            if t == ENEMY:
+                enemies.append((x, y))
+            elif t == UNMOVEABLE_BLOCK or t == MOVEABLE_BLOCK:
+                blocks.append((x, y))
+    best_enemy_dist = -1
+    best_block_dist = -1
+    best_pos = None
+    for y in range(1, GRID_HEIGHT-1):
+        for x in range(1, GRID_WIDTH-1):
+            if cell_type(grid[y][x]) == EMPTY:
+                enemy_dist = min((abs(x-ex)+abs(y-ey)) for ex,ey in enemies) if enemies else 999
+                block_dist = min((abs(x-bx)+abs(y-by)) for bx,by in blocks) if blocks else 999
+                if enemy_dist > best_enemy_dist or (enemy_dist == best_enemy_dist and block_dist > best_block_dist):
+                    best_enemy_dist = enemy_dist
+                    best_block_dist = block_dist
+                    best_pos = (x, y)
+    if best_pos:
+        grid[best_pos[1]][best_pos[0]] = PLAYER
+
 def respawn_player(grid):
-    global lives
-    # Remove existing player
+    """Remove any existing player from grid."""
     for y in range(GRID_HEIGHT):
         for x in range(GRID_WIDTH):
             if cell_type(grid[y][x]) == PLAYER:
                 grid[y][x] = EMPTY
-    # We don't do anything else here; the next code that calls respawn might place the player.
-    # But in this code, we do place the player immediately. We'll see.
 
+# -----------------------------------------------------------
+# 10) GAME OVER AND COLLISION HANDLING
+# -----------------------------------------------------------
 def game_over_screen(screen):
     screen.fill((0, 0, 0))
     msg = "Game Over"
@@ -249,20 +404,21 @@ def game_over_screen(screen):
     pygame.time.wait(3000)
 
 def handle_collision(grid, screen):
-    global lives
+    global lives, current_score, current_level
     sounds['collision'].play()
     lives -= 1
     if lives <= 0:
+        maybe_record_highscore(current_score, current_level)
         game_over_screen(screen)
         pygame.quit()
         sys.exit()
     else:
-        # remove the old player
         respawn_player(grid)
-        # We might want to place the player again in the best possible location, or just skip it.
-        # For simplicity, let's do the same approach as the initial spawn logic:
         place_player_best_spot(grid)
 
+# -----------------------------------------------------------
+# 11) PLAYER MOVEMENT FUNCTIONS
+# -----------------------------------------------------------
 def move_player_direction(grid, direction, stats, screen):
     player_pos = get_player_position(grid)
     if not player_pos:
@@ -308,6 +464,9 @@ def push_blocks(grid, start_pos, direction, stats, screen):
             sounds['squish'].play()
     return grid
 
+# -----------------------------------------------------------
+# 12) ENEMY AI: A* PATHFINDING AND RANDOM MOVEMENT
+# -----------------------------------------------------------
 def a_star_path(grid, start, goal):
     def heuristic(a, b):
         return max(abs(a[0]-b[0]), abs(a[1]-b[1]))
@@ -388,12 +547,9 @@ def update_enemies(grid, move_accuracy, screen):
     return grid
 
 # -----------------------------------------------------------
-# 9) LEVEL DIFFICULTY AND GENERATION FUNCTIONS
+# 13) LEVEL DIFFICULTY AND GENERATION
 # -----------------------------------------------------------
 def get_level_params(level):
-    """
-    Return (hunters, move_speed, move_accuracy) for the given level.
-    """
     if level == 1:
         return (3, 1000, 50)
     elif level == 2:
@@ -421,11 +577,6 @@ def get_level_params(level):
         return (hunters, 700, 70)
 
 def generate_level(num_enemies):
-    """
-    Create a 40×25 grid with outer walls, random blocks,
-    a set number of enemy hunters, then place them,
-    but do not place the player yet. We'll do that in place_player_best_spot.
-    """
     grid = [[EMPTY for _ in range(GRID_WIDTH)] for _ in range(GRID_HEIGHT)]
     for x in range(GRID_WIDTH):
         grid[0][x] = UNMOVEABLE_BLOCK
@@ -433,7 +584,6 @@ def generate_level(num_enemies):
     for y in range(GRID_HEIGHT):
         grid[y][0] = UNMOVEABLE_BLOCK
         grid[y][GRID_WIDTH-1] = UNMOVEABLE_BLOCK
-
     for y in range(1, GRID_HEIGHT-1):
         for x in range(1, GRID_WIDTH-1):
             r = random.random()
@@ -442,8 +592,6 @@ def generate_level(num_enemies):
             elif r < 0.31:
                 block_index = random.choice([0, 1, 2])
                 grid[y][x] = (MOVEABLE_BLOCK, block_index)
-
-    # Place enemies
     enemy_positions = []
     while len(enemy_positions) < num_enemies:
         rx = random.randint(1, GRID_WIDTH-2)
@@ -451,70 +599,18 @@ def generate_level(num_enemies):
         if cell_type(grid[ry][rx]) == EMPTY:
             grid[ry][rx] = ENEMY
             enemy_positions.append((rx, ry))
-
     return grid
 
-def place_player_best_spot(grid):
-    """
-    Place the player in the cell that is:
-      1) As far away as possible from all enemies (maximize min distance).
-      2) Tiebreak: as far away as possible from all blocks (unmoveable or moveable).
-    """
-    # Gather enemy positions
-    enemies = []
-    # Gather block positions
-    blocks = []
-    for y in range(GRID_HEIGHT):
-        for x in range(GRID_WIDTH):
-            t = cell_type(grid[y][x])
-            if t == ENEMY:
-                enemies.append((x, y))
-            elif t == UNMOVEABLE_BLOCK or t == MOVEABLE_BLOCK:
-                blocks.append((x, y))
-
-    best_enemy_dist = -1
-    best_block_dist = -1
-    best_pos = None
-
-    for y in range(1, GRID_HEIGHT-1):
-        for x in range(1, GRID_WIDTH-1):
-            if cell_type(grid[y][x]) == EMPTY:
-                # Distance to enemies
-                if enemies:
-                    enemy_min_dist = min(abs(x-ex) + abs(y-ey) for ex,ey in enemies)
-                else:
-                    enemy_min_dist = 9999
-                # Distance to blocks
-                if blocks:
-                    block_min_dist = min(abs(x-bx) + abs(y-by) for bx,by in blocks)
-                else:
-                    block_min_dist = 9999
-
-                # Compare to current best
-                if enemy_min_dist > best_enemy_dist:
-                    best_enemy_dist = enemy_min_dist
-                    best_block_dist = block_min_dist
-                    best_pos = (x, y)
-                elif enemy_min_dist == best_enemy_dist:
-                    # Tiebreak on block distance
-                    if block_min_dist > best_block_dist:
-                        best_block_dist = block_min_dist
-                        best_pos = (x, y)
-
-    if best_pos:
-        px, py = best_pos
-        grid[py][px] = PLAYER
-
 # -----------------------------------------------------------
-# 10) LEVEL PLAY FUNCTION AND MAIN LOOP
+# 14) LEVEL PLAY FUNCTION AND MAIN LOOP
 # -----------------------------------------------------------
 def play_level(level, screen, clock, cumulative_score):
+    global current_score, current_level
     hunters, move_speed, move_accuracy = get_level_params(level)
+    current_level = level
+    current_score = cumulative_score
     grid = generate_level(hunters)
-
-    # Now place the player in the best spot after the enemies/blocks are placed.
     place_player_best_spot(grid)
-
     stats = {'moves': 0, 'enemies_eliminated': 0}
     level_start_time = pygame.time.get_ticks()
     enemy_update_interval = move_speed
@@ -527,9 +623,13 @@ def play_level(level, screen, clock, cumulative_score):
                 sys.exit()
             elif event.type == KEYDOWN:
                 if event.key == K_ESCAPE:
-                    pygame.quit()
-                    sys.exit()
-                if event.key in (K_UP, K_DOWN, K_LEFT, K_RIGHT):
+                    pause_game(screen)
+                elif event.key in (K_q, ord('q')):
+                    if quit_confirm(screen):
+                        maybe_record_highscore(current_score, current_level)
+                        pygame.quit()
+                        sys.exit()
+                elif event.key in (K_UP, K_DOWN, K_LEFT, K_RIGHT):
                     old_pos = get_player_position(grid)
                     if event.key == K_UP:
                         direction = (0, -1)
@@ -576,9 +676,8 @@ def show_level_complete_screen(screen, level, moves, enemies, time_taken, level_
         f"Cumulative Score: {cumulative_score}",
         "Press <space> to continue"
     ]
-    max_len = max(len(l) for l in lines)
-    line_height = CHAR_HEIGHT * SCALE_Y + 4
     total_width = GRID_WIDTH * (CHAR_WIDTH * SCALE_X * 2)
+    line_height = CHAR_HEIGHT * SCALE_Y + 4
     y = 100
     for line in lines:
         lw = len(line) * CHAR_WIDTH * SCALE_X
@@ -622,6 +721,7 @@ def main():
         cumulative_score += level_score
         show_level_complete_screen(screen, level, moves, enemies, time_taken, level_score, cumulative_score)
         level += 1
+        maybe_record_highscore(cumulative_score, level)
 
 if __name__ == "__main__":
     main()
