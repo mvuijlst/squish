@@ -10,8 +10,9 @@
             },
             "pusher": {
                 "count": 1,
+                "radius": 8,
                 "speed_ms": 1000,
-                "accuracy": 50,
+                "accuracy": 100,
                 "speed_variability": 0
             }
         }
