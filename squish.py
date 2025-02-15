@@ -1,14 +1,10 @@
-#############################################################
-##                                                         ##
-##  S Q U I S H  v3.6.0  (Enemies blocked by each other,   ##
-##                        sentinels = 6×level)             ##
-##                                                         ##
-##  - No enemy can move onto another enemy's cell.         ##
-##  - Sentinel kills = 6×level.                            ##
-##  - Eggs => pushers, simpler pusher logic.               ##
-##  - Everything else (hunters, scoreboard, collisions,    ##
-##    etc.) is retained.                                   ##
-#############################################################
+#############################################
+##                                         ##
+##          S Q U I S H  v3.6.0            ##
+##                                         ##
+##      (c) 2025 Michel Vuijlsteke         ##
+##                                         ##
+#############################################
 
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
