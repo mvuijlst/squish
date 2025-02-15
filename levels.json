@@ -7,6 +7,12 @@
                 "speed_ms": 1000,
                 "accuracy": 50,
                 "speed_variability": 0
+            },
+            "pusher": {
+                "count": 1,
+                "speed_ms": 1000,
+                "accuracy": 50,
+                "speed_variability": 0
             }
         }
     },
