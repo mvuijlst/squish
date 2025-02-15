@@ -1,49 +1,54 @@
 # Squish
 
-A game I used to play a lot when I was younger. It was included in a version of WordPerfect Office, or WordPerfect Works, or something like that.
-
-I *think* the actual game was called **Beast**.
+A game inspired by **Beast**, which was included in a version of WordPerfect Office or WordPerfect Works _ages_ ago. I played it to death on my old Tandy 1000 EX. 
 
 ## About the Game
 
-In **Squish**, you control a character navigating through a maze filled with creatures. Your goal is to push blocks strategically to trap and squish the enemies before they can catch you. It’s a mix of puzzle-solving and quick reflexes, inspired by the classic mechanics of the original game.
+In **Squish**, you navigate a playing field while avoiding and eliminating different types of enemies by pushing blocks strategically. The game requires both quick reflexes and careful planning.
 
 ## Gameplay Features
 
-- **Enemy Squishing**: Push rocks to crush enemies and clear the level.
-- **Multiple Enemy Types**: Each with different behaviors and strategies to counter:
-  - Regular enemies try to eat you
-  - Eggs, that hatch into Pushers
-  - Pushers, that can (and will) try to squish you. In addition, they can only be squished between a rock and a wall
-- High scores!
-- **Retro Visuals and Sounds**: True to the original game’s minimalist style. Ahem. 
+- **Enemies**:
+  - **Hunters**: Chase you down.
+  - **Eggs**: Hatch into **Pushers** over time.
+  - **Pushers**: Try to push blocks into you. They can only be squished between a block and a wall.
+  - **Sentinels**: Move slower but require a different strategy to eliminate.
+- **Scoring**:
+  - Points are awarded based on enemy type and level.
+  - Sentinels are worth the most points.
+- **High Scores**: The game keeps track of your top scores.
+- **Grid-Based Movement**: The game plays on a fixed-size grid with tile-based mechanics.
 
 ## Controls
 
-- **Arrow Keys**: Move your character in four directions.
-- **esc**: Pause the game.
-- **q**: Quit the game
-
-## Development Notes
-
-This project is a recreation from memory, so some details might differ from the original game. If you remember the original **Beast** or played a similar game, feel free to contribute ideas or feedback!
+- **Arrow Keys**: Move in four directions.
+- **Esc**: Pause the game.
+- **Q**: Quit the game.
 
 ## Running the Game
 
-Clone the repository and run the main script:
+### Running from Source
+Requires Python and `pygame`. Install dependencies and run:
 
-    python squish.py
+```sh
+git clone https://github.com/YOURUSERNAME/squish.git
+cd squish
+pip install -r requirements.txt
+python o3squish.py
+```
 
-Or, if you have the `.exe` file, simply double-click to start the game.
+### Running the Executable
+If you have the `.exe` file, just double-click to start.
 
-## Contributions
+## Development Notes
 
-Open to bug reports, feature suggestions, and pull requests. Let’s bring back some nostalgic fun!
+This is a **recreation from memory**, so details may differ from the original **Beast**. If you remember how the original worked, feel free to suggest improvements.
+
+## Contributing
+
+- Report bugs or suggest changes via GitHub Issues.
+- Pull requests with improvements are welcome.
 
 ## License
 
-This project is licensed under the MIT License.
-
-* * *
-
-Let me know if you'd like to add or modify anything!
+Licensed under the **MIT License**. See `LICENSE` for details.
