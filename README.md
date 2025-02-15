@@ -1,6 +1,6 @@
 # Squish
 
-A game inspired by **Beast**, which was included in a version of WordPerfect Office or WordPerfect Works _ages_ ago. I played it to death on my old Tandy 1000 EX. 
+A game inspired by **Beast**, which was included in a version of WordPerfect Office or WordPerfect Works _ages_ ago. I played it to death on my old Tandy 1000 EX. I made this with some heavy lifting done by ChatGPT (o3 and o1). 
 
 ## About the Game
 
@@ -31,7 +31,7 @@ In **Squish**, you navigate a playing field while avoiding and eliminating diffe
 Requires Python and `pygame`. Install dependencies and run:
 
 ```sh
-git clone https://github.com/YOURUSERNAME/squish.git
+git clone https://github.com/mvuijlst/squish.git
 cd squish
 pip install -r requirements.txt
 python o3squish.py
