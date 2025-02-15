@@ -1,231 +1,246 @@
 """
 #############################################################
 ##                                                         ##
-##                 S Q U I S H  v2.1.2                     ##
+##                 S Q U I S H  v2.2.0                     ##
 ##                                                         ##
-##              (c) 2025 Michel Vuijlsteke                 ##
+##        (c) 2025 Michel Vuijlsteke - Codepage Edition    ##
 ##                                                         ##
 #############################################################
 """
 
 import os
-# Hide the Pygame support prompt.
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 
 import pygame, random, sys
 from pygame.locals import *
 from heapq import heappush, heappop
 
-# Define cell types.
+# -----------------------------------------------------------
+# 1) BASIC CONFIG
+# -----------------------------------------------------------
+
+# Grid cell definitions.
 EMPTY = 0
 PLAYER = 1
 MOVEABLE_BLOCK = 2
 UNMOVEABLE_BLOCK = 3
 ENEMY = 4
 
-# Grid configuration: 40x25 cells; each cell is 32x32 pixels.
-CELL_SIZE = 32
-GRID_WIDTH = 40
+# Grid size: 40×25 cells, each cell is effectively 32×32 on screen.
+GRID_WIDTH  = 40
 GRID_HEIGHT = 25
-# Additional status line height (one cell tall)
-STATUS_HEIGHT = CELL_SIZE
+CELL_SIZE   = 32
+STATUS_HEIGHT = CELL_SIZE  # extra space for the status line
+
+# Each code-page-437 glyph in the sprite sheet is 8×16 pixels.
+# We scale them so that each glyph becomes 16×32 (2×2 scaling).
+# Because each cell is 2 glyphs wide → 2×16=32 wide, and 1 glyph tall → 32 tall.
+CHAR_WIDTH  = 8
+CHAR_HEIGHT = 16
+SCALE_X     = 2  # horizontal scale
+SCALE_Y     = 2  # vertical scale
+
+# The sprite sheet is assumed to have 16 columns × 16 rows = 256 glyphs (0–255).
+SHEET_COLS  = 16
+SHEET_ROWS  = 16
+
+# We'll store references to our sprite sheet and sounds globally.
+sprite_sheet = None
+sounds = {}
+
+# Lives for the player.
+lives = 3
 
 def cell_type(cell):
-    """Return the type of the cell (ignoring extra data)."""
+    """
+    Return the numeric 'type' if cell is an integer or the first item
+    if cell is a tuple. For example, (MOVEABLE_BLOCK, 2) => MOVEABLE_BLOCK.
+    """
     if isinstance(cell, tuple):
         return cell[0]
     return cell
 
-# Global dictionaries for images and sounds.
-images = {}
-sounds = {}
+# -----------------------------------------------------------
+# 2) CODE PAGE 437 GLYPHS for walls, blocks, player, enemies
+# -----------------------------------------------------------
 
-# Global lives counter (player starts with 3 lives).
-lives = 3
+# We represent each cell with exactly two glyphs side by side:
+# For example, a wall is "\xDB\xDB" = "██".
+WALL_CHARS    = "\xDB\xDB"  # 0xDB = █
+BLOCK0_CHARS  = "\xB0\xB0"  # 0xB0 = ░
+BLOCK1_CHARS  = "\xB1\xB1"  # 0xB1 = ▒
+BLOCK2_CHARS  = "\xB2\xB2"  # 0xB2 = ▓
+PLAYER_CHARS  = "\x11\x10"  # 0x11 = ◄, 0x10 = ►
+HUNTER_CHARS  = "\xC3\xB4"  # 0xC3 = ├, 0xB4 = ┤
+EMPTY_CHARS   = "  "
 
-def get_level_params(level):
+def get_cell_string(cell):
     """
-    Returns (hunters, move_speed, move_accuracy) for the given level.
-    - hunters: number of enemy hunters.
-    - move_speed: enemy update interval in milliseconds.
-    - move_accuracy: percentage chance an enemy will follow the A* path.
+    Return the 2-glyph code-page-437 string for the given cell content.
+    If it's a moveable block, check which block index (0,1,2).
     """
-    if level == 1:
-        return 3, 1000, 50
-    elif level == 2:
-        return 4, 1000, 50
-    elif level == 3:
-        return 5, 1000, 50
-    elif level == 4:
-        return 6, 1000, 50
-    elif level == 5:
-        return 6, 900, 50
-    elif level == 6:
-        return 6, 800, 50
-    elif level == 7:
-        return 6, 700, 50
-    elif level == 8:
-        return 6, 700, 55
-    elif level == 9:
-        return 6, 700, 60
-    elif level == 10:
-        return 6, 700, 65
-    elif level == 11:
-        return 7, 700, 70
+    t = cell_type(cell)
+    if t == EMPTY:
+        return EMPTY_CHARS
+    elif t == PLAYER:
+        return PLAYER_CHARS
+    elif t == MOVEABLE_BLOCK:
+        # cell might be (MOVEABLE_BLOCK, block_index).
+        block_index = cell[1]
+        if block_index == 0:
+            return BLOCK0_CHARS
+        elif block_index == 1:
+            return BLOCK1_CHARS
+        else:
+            return BLOCK2_CHARS
+    elif t == UNMOVEABLE_BLOCK:
+        return WALL_CHARS
+    elif t == ENEMY:
+        return HUNTER_CHARS
     else:
-        hunters = 7 + ((level - 11) // 4)
-        return hunters, 700, 70
+        return "??"
 
-def generate_level(num_enemies):
-    """Generates and returns a new grid for the level, spawning num_enemies hunters."""
-    grid = [[EMPTY for _ in range(GRID_WIDTH)] for _ in range(GRID_HEIGHT)]
-    
-    # Create outer walls using wall.png.
-    for x in range(GRID_WIDTH):
-        grid[0][x] = UNMOVEABLE_BLOCK
-        grid[GRID_HEIGHT - 1][x] = UNMOVEABLE_BLOCK
-    for y in range(GRID_HEIGHT):
-        grid[y][0] = UNMOVEABLE_BLOCK
-        grid[y][GRID_WIDTH - 1] = UNMOVEABLE_BLOCK
-        
-    # Fill interior cells with random blocks:
-    # 1% chance for an unmoveable block, 30% chance for a moveable block.
-    for y in range(1, GRID_HEIGHT - 1):
-        for x in range(1, GRID_WIDTH - 1):
-            r = random.random()
-            if r < 0.01:
-                grid[y][x] = UNMOVEABLE_BLOCK
-            elif r < 0.01 + 0.30:
-                block_index = random.choice([0, 1, 2])
-                grid[y][x] = (MOVEABLE_BLOCK, block_index)
-    
-    # Spawn enemy hunters in random empty cells.
-    enemy_positions = []
-    while len(enemy_positions) < num_enemies:
-        x = random.randint(1, GRID_WIDTH - 2)
-        y = random.randint(1, GRID_HEIGHT - 2)
-        if cell_type(grid[y][x]) == EMPTY:
-            grid[y][x] = ENEMY
-            enemy_positions.append((x, y))
-    
-    # Spawn the player as far away from all enemies as possible.
-    best_pos = None
-    best_distance = -1
-    for y in range(1, GRID_HEIGHT - 1):
-        for x in range(1, GRID_WIDTH - 1):
-            if cell_type(grid[y][x]) == EMPTY:
-                min_dist = min(abs(x - ex) + abs(y - ey) for ex, ey in enemy_positions) if enemy_positions else 1000
-                if min_dist > best_distance:
-                    best_distance = min_dist
-                    best_pos = (x, y)
-    if best_pos:
-        px, py = best_pos
-        grid[py][px] = PLAYER
-    else:
-        print("No valid position for player!")
-    
-    return grid
+# -----------------------------------------------------------
+# 3) SPRITE-SHEET TEXT RENDERING
+# -----------------------------------------------------------
+
+def load_sprite_sheet(filename):
+    """Load the code-page-437 sprite sheet into sprite_sheet."""
+    global sprite_sheet
+    sprite_sheet = pygame.image.load(filename).convert_alpha()
+
+def draw_char(surface, ch, x, y):
+    """
+    Draw a single code-page-437 character from the sprite sheet at (x,y).
+    We'll compute which 8×16 sub-rectangle to copy, then scale it by 2×2.
+    """
+    code = ord(ch)
+    if code < 0 or code > 255:
+        code = 127  # fallback
+
+    col = code % SHEET_COLS
+    row = code // SHEET_COLS
+    sx = col * CHAR_WIDTH
+    sy = row * CHAR_HEIGHT
+    char_rect = pygame.Rect(sx, sy, CHAR_WIDTH, CHAR_HEIGHT)
+
+    # Copy that sub-rectangle into a small surface, then scale it.
+    char_surf = pygame.Surface((CHAR_WIDTH, CHAR_HEIGHT), pygame.SRCALPHA)
+    char_surf.blit(sprite_sheet, (0, 0), char_rect)
+
+    scaled_w = CHAR_WIDTH  * SCALE_X
+    scaled_h = CHAR_HEIGHT * SCALE_Y
+    char_surf = pygame.transform.scale(char_surf, (scaled_w, scaled_h))
+
+    surface.blit(char_surf, (x, y))
+
+def draw_text(surface, text, x, y):
+    """
+    Draw a string of code-page-437 glyphs at (x,y), left to right,
+    using draw_char for each glyph.
+    """
+    offset_x = 0
+    for ch in text:
+        draw_char(surface, ch, x + offset_x, y)
+        offset_x += CHAR_WIDTH * SCALE_X
+
+# -----------------------------------------------------------
+# 4) DRAWING THE GRID
+# -----------------------------------------------------------
 
 def draw_grid(screen, grid):
-    """Draws the game grid (the top part) onto the screen."""
-    screen.fill((0, 0, 0))
-    for y, row in enumerate(grid):
-        for x, cell in enumerate(row):
-            typ = cell_type(cell)
-            pos = (x * CELL_SIZE, y * CELL_SIZE)
-            if typ == PLAYER:
-                screen.blit(images['player'], pos)
-            elif typ == MOVEABLE_BLOCK:
-                block_index = cell[1]
-                screen.blit(images['block'][block_index], pos)
-            elif typ == UNMOVEABLE_BLOCK:
-                screen.blit(images['wall'], pos)
-            elif typ == ENEMY:
-                screen.blit(images['enemy'], pos)
+    """
+    Each cell is 2 glyphs wide, each glyph scaled to 16×32 => 32×32 cell.
+    So for cell (x,y), we place the 2-glyph string at (x*32, y*32).
+    """
+    screen.fill((0,0,0))
+    for y in range(GRID_HEIGHT):
+        for x in range(GRID_WIDTH):
+            cell_str = get_cell_string(grid[y][x])
+            # 2 glyphs wide => each glyph 16 wide => total 32
+            px = x * (CHAR_WIDTH * SCALE_X * 2)
+            py = y * (CHAR_HEIGHT * SCALE_Y)
+            draw_text(screen, cell_str, px, py)
+
+# -----------------------------------------------------------
+# 5) STATUS LINE
+# -----------------------------------------------------------
 
 def draw_status_line(screen, grid, level_start_time, lives, level, cumulative_score, initial_hunters):
     """
-    Draws a status line at the bottom of the screen showing:
-    Enemies: <current enemy count>  |  Time: <mm:ss>  |  Lives: <lives>  |  Score: <level score> (<cumulative score>)
-    Uses the traditional IBM PC DOS font ("Terminal") at 24px.
+    Draw a line of text at the bottom using 0xB3 (│) as the separator.
+    Example: "Enemies: 3  │  Time: 00:16  │  Lives: 3  │  Score: 2 (0)"
     """
     elapsed_seconds = (pygame.time.get_ticks() - level_start_time) // 1000
     minutes, seconds = divmod(elapsed_seconds, 60)
     time_str = f"{minutes:02}:{seconds:02}"
-    
-    # Count current enemies.
+
     enemy_count = sum(1 for row in grid for cell in row if cell_type(cell) == ENEMY)
-    # Compute level score as (initial enemies - current enemies) * (2 * level).
     level_score = (initial_hunters - enemy_count) * (2 * level)
-    
+
+    sep = chr(0xB3)  # 0xB3 = │
     status_text = (
-        f"Enemies: {enemy_count}  |  "
-        f"Time: {time_str}  |  "
-        f"Lives: {lives}  |  "
+        f"Enemies: {enemy_count}  {sep}  "
+        f"Time: {time_str}  {sep}  "
+        f"Lives: {lives}  {sep}  "
         f"Score: {level_score} ({cumulative_score})"
     )
-    
-    # Increase font size to 24 for better legibility.
-    status_font = pygame.font.SysFont("Terminal", 24)
-    text_surface = status_font.render(status_text, True, (255, 255, 255))
-    
-    # Position the status line in the bottom STATUS_HEIGHT pixels.
-    text_y = GRID_HEIGHT * CELL_SIZE + (STATUS_HEIGHT - text_surface.get_height()) // 2
-    screen.blit(text_surface, (5, text_y))
+
+    text_x = 5
+    text_y = GRID_HEIGHT * (CHAR_HEIGHT * SCALE_Y) + (STATUS_HEIGHT - CHAR_HEIGHT * SCALE_Y)//2
+    draw_text(screen, status_text, text_x, text_y)
+
+# -----------------------------------------------------------
+# 6) GAME LOGIC
+# -----------------------------------------------------------
 
 def get_player_position(grid):
-    """Returns the (x,y) position of the player in the grid."""
-    for y in range(len(grid)):
-        for x in range(len(grid[0])):
+    for y in range(GRID_HEIGHT):
+        for x in range(GRID_WIDTH):
             if cell_type(grid[y][x]) == PLAYER:
                 return (x, y)
     return None
 
 def respawn_player(grid):
-    """
-    Removes any existing player marker from the grid and places the player
-    as far away as possible from all enemies.
-    """
+    global lives
+    # Remove existing player
     for y in range(GRID_HEIGHT):
         for x in range(GRID_WIDTH):
             if cell_type(grid[y][x]) == PLAYER:
                 grid[y][x] = EMPTY
-    enemy_positions = []
+    # Find enemies
+    enemies = []
     for y in range(GRID_HEIGHT):
         for x in range(GRID_WIDTH):
             if cell_type(grid[y][x]) == ENEMY:
-                enemy_positions.append((x, y))
+                enemies.append((x,y))
     best_pos = None
-    best_distance = -1
-    for y in range(1, GRID_HEIGHT - 1):
-        for x in range(1, GRID_WIDTH - 1):
+    best_dist = -1
+    for y in range(1, GRID_HEIGHT-1):
+        for x in range(1, GRID_WIDTH-1):
             if cell_type(grid[y][x]) == EMPTY:
-                min_dist = min(abs(x - ex) + abs(y - ey) for ex, ey in enemy_positions) if enemy_positions else 1000
-                if min_dist > best_distance:
-                    best_distance = min_dist
-                    best_pos = (x, y)
+                dist = min(abs(x-ex)+abs(y-ey) for ex,ey in enemies) if enemies else 999
+                if dist > best_dist:
+                    best_dist = dist
+                    best_pos = (x,y)
     if best_pos:
         grid[best_pos[1]][best_pos[0]] = PLAYER
-    return grid
 
 def game_over_screen(screen):
-    """Displays a Game Over screen and waits before quitting."""
-    font = pygame.font.SysFont("Terminal", 48)
-    screen.fill((0, 0, 0))
-    text_surface = font.render("Game Over", True, (255, 0, 0))
-    text_rect = text_surface.get_rect(
-        center=(GRID_WIDTH * CELL_SIZE // 2, (GRID_HEIGHT * CELL_SIZE + STATUS_HEIGHT) // 2)
-    )
-    screen.blit(text_surface, text_rect)
+    screen.fill((0,0,0))
+    msg = "Game Over"
+    w = len(msg)*CHAR_WIDTH*SCALE_X
+    h = CHAR_HEIGHT*SCALE_Y
+    # The total grid width is 2 glyphs per cell => 2*(CHAR_WIDTH*SCALE_X)*GRID_WIDTH
+    total_w = GRID_WIDTH*(CHAR_WIDTH*SCALE_X)*2
+    total_h = GRID_HEIGHT*(CHAR_HEIGHT*SCALE_Y)+STATUS_HEIGHT
+    x = (total_w - w)//2
+    y = (total_h - h)//2
+    draw_text(screen, msg, x, y)
     pygame.display.flip()
     pygame.time.wait(3000)
 
 def handle_collision(grid, screen):
-    """
-    Called when the player collides with an enemy.
-    Plays collision.wav, decrements lives, respawns the player,
-    and if lives hit zero, shows Game Over.
-    """
     global lives
     sounds['collision'].play()
     lives -= 1
@@ -237,167 +252,136 @@ def handle_collision(grid, screen):
         respawn_player(grid)
 
 def move_player_direction(grid, direction, stats, screen):
-    """
-    Attempts to move the player in the given direction.
-    If the target cell is an enemy, a collision is triggered.
-    """
     player_pos = get_player_position(grid)
     if not player_pos:
         return grid
-
+    px, py = player_pos
     dx, dy = direction
-    target_x = player_pos[0] + dx
-    target_y = player_pos[1] + dy
-
-    target_cell = cell_type(grid[target_y][target_x])
-    if target_cell == EMPTY:
-        grid[player_pos[1]][player_pos[0]] = EMPTY
-        grid[target_y][target_x] = PLAYER
-    elif target_cell == MOVEABLE_BLOCK:
-        grid = push_blocks(grid, player_pos, direction, stats, screen)
-    elif target_cell == ENEMY:
+    tx, ty = px+dx, py+dy
+    t = cell_type(grid[ty][tx])
+    if t == EMPTY:
+        grid[py][px] = EMPTY
+        grid[ty][tx] = PLAYER
+    elif t == MOVEABLE_BLOCK:
+        grid = push_blocks(grid, (px,py), direction, stats, screen)
+    elif t == ENEMY:
         handle_collision(grid, screen)
     return grid
 
 def push_blocks(grid, start_pos, direction, stats, screen):
-    """
-    Attempts to push a chain of moveable blocks.
-    If a block is pushed into an enemy (with a block/wall behind), the enemy is squished,
-    the squish sound is played, and stats are updated.
-    """
     x, y = start_pos
     dx, dy = direction
     chain = []
-    cur_x = x + dx
-    cur_y = y + dy
-    while cell_type(grid[cur_y][cur_x]) == MOVEABLE_BLOCK:
-        chain.append((cur_x, cur_y))
-        cur_x += dx
-        cur_y += dy
-
-    if cell_type(grid[cur_y][cur_x]) == EMPTY:
-        for bx, by in reversed(chain):
-            grid[by + dy][bx + dx] = grid[by][bx]
+    cx, cy = x+dx, y+dy
+    while cell_type(grid[cy][cx]) == MOVEABLE_BLOCK:
+        chain.append((cx,cy))
+        cx += dx
+        cy += dy
+    t = cell_type(grid[cy][cx])
+    if t == EMPTY:
+        for bx,by in reversed(chain):
+            grid[by+dy][bx+dx] = grid[by][bx]
             grid[by][bx] = EMPTY
-        grid[y + dy][x + dx] = PLAYER
+        grid[y+dy][x+dx] = PLAYER
         grid[y][x] = EMPTY
-    elif cell_type(grid[cur_y][cur_x]) == ENEMY:
-        next_x = cur_x + dx
-        next_y = cur_y + dy
-        if cell_type(grid[next_y][next_x]) in [MOVEABLE_BLOCK, UNMOVEABLE_BLOCK]:
-            for bx, by in reversed(chain):
-                grid[by + dy][bx + dx] = grid[by][bx]
+    elif t == ENEMY:
+        nx, ny = cx+dx, cy+dy
+        if cell_type(grid[ny][nx]) in [MOVEABLE_BLOCK, UNMOVEABLE_BLOCK]:
+            for bx,by in reversed(chain):
+                grid[by+dy][bx+dx] = grid[by][bx]
                 grid[by][bx] = EMPTY
-            grid[y + dy][x + dx] = PLAYER
+            grid[y+dy][x+dx] = PLAYER
             grid[y][x] = EMPTY
             stats['enemies_eliminated'] += 1
             sounds['squish'].play()
     return grid
 
 def a_star_path(grid, start, goal):
-    """
-    Computes a path from start to goal using the A* algorithm.
-    Returns a list of (x, y) positions (including start and goal)
-    or an empty list if no path is found.
-    A cell is considered passable if it is EMPTY or if it is the goal.
-    """
-    def heuristic(a, b):
+    def heuristic(a,b):
         return max(abs(a[0]-b[0]), abs(a[1]-b[1]))
-    
     open_set = []
-    heappush(open_set, (0, start))
-    came_from = {}
-    g_score = {start: 0}
-    f_score = {start: heuristic(start, goal)}
-    
+    heappush(open_set,(0,start))
+    came_from={}
+    g_score={start:0}
+    f_score={start:heuristic(start,goal)}
     while open_set:
-        current_f, current = heappop(open_set)
-        if current == goal:
-            path = [current]
+        _, current = heappop(open_set)
+        if current==goal:
+            path=[current]
             while current in came_from:
-                current = came_from[current]
+                current=came_from[current]
                 path.append(current)
             path.reverse()
             return path
-        
-        for dx in [-1, 0, 1]:
-            for dy in [-1, 0, 1]:
-                if dx == 0 and dy == 0:
+        for ddx in [-1,0,1]:
+            for ddy in [-1,0,1]:
+                if ddx==0 and ddy==0:
                     continue
-                neighbor = (current[0] + dx, current[1] + dy)
-                if not (0 <= neighbor[0] < GRID_WIDTH and 0 <= neighbor[1] < GRID_HEIGHT):
+                nx=current[0]+ddx
+                ny=current[1]+ddy
+                if not(0<=nx<GRID_WIDTH and 0<=ny<GRID_HEIGHT):
                     continue
-                if neighbor != goal and cell_type(grid[neighbor[1]][neighbor[0]]) != EMPTY:
+                if (nx,ny)!=goal and cell_type(grid[ny][nx])!=EMPTY:
                     continue
-                tentative_g = g_score[current] + 1
-                if neighbor in g_score and tentative_g >= g_score[neighbor]:
+                tg=g_score[current]+1
+                if (nx,ny) in g_score and tg>=g_score[(nx,ny)]:
                     continue
-                came_from[neighbor] = current
-                g_score[neighbor] = tentative_g
-                f_score[neighbor] = tentative_g + heuristic(neighbor, goal)
-                heappush(open_set, (f_score[neighbor], neighbor))
+                came_from[(nx,ny)]=current
+                g_score[(nx,ny)]=tg
+                f_score[(nx,ny)]=tg+heuristic((nx,ny),goal)
+                heappush(open_set,(f_score[(nx,ny)],(nx,ny)))
     return []
 
 def update_enemies(grid, move_accuracy, screen):
-    """
-    Moves each enemy toward the player using A* pathfinding.
-    With probability equal to move_accuracy, an enemy follows its computed path;
-    otherwise, it picks a random move from the 8 directions.
-    If an enemy attempts to move into the player's cell, a collision is triggered.
-    """
     player_pos = get_player_position(grid)
     if not player_pos:
         return grid
-
-    enemy_positions = []
+    enemies=[]
     for y in range(GRID_HEIGHT):
         for x in range(GRID_WIDTH):
-            if cell_type(grid[y][x]) == ENEMY:
-                enemy_positions.append((x, y))
-    
-    collision_occurred = False
-    for ex, ey in enemy_positions:
+            if cell_type(grid[y][x])==ENEMY:
+                enemies.append((x,y))
+    collision_occurred=False
+    for ex,ey in enemies:
         if collision_occurred:
             break
-        path = a_star_path(grid, (ex, ey), player_pos)
-        moved = False
-        if len(path) >= 2 and random.random() < (move_accuracy / 100.0):
-            next_step = path[1]
-            target = cell_type(grid[next_step[1]][next_step[0]])
-            if target == PLAYER:
-                handle_collision(grid, screen)
-                collision_occurred = True
+        path=a_star_path(grid,(ex,ey),player_pos)
+        moved=False
+        if len(path)>=2 and random.random()<(move_accuracy/100.0):
+            nx,ny=path[1]
+            t=cell_type(grid[ny][nx])
+            if t==PLAYER:
+                handle_collision(grid,screen)
+                collision_occurred=True
                 continue
-            elif target == EMPTY:
-                grid[next_step[1]][next_step[0]] = ENEMY
-                grid[ey][ex] = EMPTY
-                moved = True
+            elif t==EMPTY:
+                grid[ny][nx]=ENEMY
+                grid[ey][ex]=EMPTY
+                moved=True
         if not moved:
-            move = random.choice([
-                (-1, -1), (0, -1), (1, -1),
-                (-1,  0),          (1,  0),
-                (-1,  1), (0,  1), (1,  1)
-            ])
-            new_x = ex + move[0]
-            new_y = ey + move[1]
-            if 0 <= new_x < GRID_WIDTH and 0 <= new_y < GRID_HEIGHT:
-                target = cell_type(grid[new_y][new_x])
-                if target == PLAYER:
-                    handle_collision(grid, screen)
-                    collision_occurred = True
+            mv = random.choice([(-1,-1),(0,-1),(1,-1),
+                                (-1,0),        (1,0),
+                                (-1,1),(0,1),(1,1)])
+            nx=ex+mv[0]
+            ny=ey+mv[1]
+            if 0<=nx<GRID_WIDTH and 0<=ny<GRID_HEIGHT:
+                t=cell_type(grid[ny][nx])
+                if t==PLAYER:
+                    handle_collision(grid,screen)
+                    collision_occurred=True
                     continue
-                elif target == EMPTY:
-                    grid[new_y][new_x] = ENEMY
-                    grid[ey][ex] = EMPTY
+                elif t==EMPTY:
+                    grid[ny][nx]=ENEMY
+                    grid[ey][ex]=EMPTY
     return grid
 
 def show_level_complete_screen(screen, level, moves, enemies, time_taken, level_score, cumulative_score):
     """
-    Clears the screen and displays the level completion summary.
-    Waits until the player presses the spacebar to continue.
+    Clears the screen, shows summary lines, and waits for <space>.
+    We'll just use sprite-based text for each line.
     """
-    font = pygame.font.SysFont("Terminal", 36)
-    lines = [
+    screen.fill((0,0,0))
+    lines=[
         f"Level {level} Completed!",
         "",
         f"Enemies Eliminated: {enemies}",
@@ -407,121 +391,184 @@ def show_level_complete_screen(screen, level, moves, enemies, time_taken, level_
         f"Cumulative Score: {cumulative_score}",
         "Press <space> to continue"
     ]
-    screen.fill((0, 0, 0))
-    y = 100
+    max_len=max(len(l) for l in lines)
+    line_height=CHAR_HEIGHT*SCALE_Y+4
+    total_w=GRID_WIDTH*(CHAR_WIDTH*SCALE_X)*2
+    y=100
     for line in lines:
-        text_surface = font.render(line, True, (255, 255, 255))
-        text_rect = text_surface.get_rect(center=(GRID_WIDTH * CELL_SIZE // 2, y))
-        screen.blit(text_surface, text_rect)
-        y += 40
+        lw=len(line)*CHAR_WIDTH*SCALE_X
+        x=(total_w - lw)//2
+        draw_text(screen,line,x,y)
+        y+=line_height
     pygame.display.flip()
-    waiting = True
+    waiting=True
     while waiting:
         for event in pygame.event.get():
-            if event.type == QUIT:
+            if event.type==QUIT:
                 pygame.quit()
                 sys.exit()
-            elif event.type == KEYDOWN:
-                if event.key == K_SPACE:
-                    waiting = False
-                elif event.key == K_ESCAPE:
+            elif event.type==KEYDOWN:
+                if event.key==K_SPACE:
+                    waiting=False
+                elif event.key==K_ESCAPE:
                     pygame.quit()
                     sys.exit()
 
-def play_level(level, screen, clock, cumulative_score):
+def get_level_params(level):
     """
-    Plays a single level.
-    Returns the moves taken, number of enemies eliminated, time taken (seconds), and the level score.
+    Return (hunters, move_speed, move_accuracy) for each level.
+    This is your difficulty ramp.
     """
-    hunters, move_speed, move_accuracy = get_level_params(level)
-    initial_hunters = hunters  # Save initial enemy count.
-    grid = generate_level(hunters)
-    stats = {'moves': 0, 'enemies_eliminated': 0}
-    level_start_time = pygame.time.get_ticks()
-    
-    enemy_update_interval = move_speed
-    last_enemy_update = pygame.time.get_ticks()
-    
+    if level==1:
+        return (3,1000,50)
+    elif level==2:
+        return (4,1000,50)
+    elif level==3:
+        return (5,1000,50)
+    elif level==4:
+        return (6,1000,50)
+    elif level==5:
+        return (6,900,50)
+    elif level==6:
+        return (6,800,50)
+    elif level==7:
+        return (6,700,50)
+    elif level==8:
+        return (6,700,55)
+    elif level==9:
+        return (6,700,60)
+    elif level==10:
+        return (6,700,65)
+    elif level==11:
+        return (7,700,70)
+    else:
+        hunters=7+((level-11)//4)
+        return (hunters,700,70)
+
+def generate_level(num_enemies):
+    """
+    Create a 40×25 grid with random blocks,
+    plus outer walls, plus a random set of enemies,
+    plus the player far from the enemies.
+    """
+    grid=[[EMPTY for _ in range(GRID_WIDTH)] for _ in range(GRID_HEIGHT)]
+    for x in range(GRID_WIDTH):
+        grid[0][x]=UNMOVEABLE_BLOCK
+        grid[GRID_HEIGHT-1][x]=UNMOVEABLE_BLOCK
+    for y in range(GRID_HEIGHT):
+        grid[y][0]=UNMOVEABLE_BLOCK
+        grid[y][GRID_WIDTH-1]=UNMOVEABLE_BLOCK
+    for y in range(1,GRID_HEIGHT-1):
+        for x in range(1,GRID_WIDTH-1):
+            r=random.random()
+            if r<0.01:
+                grid[y][x]=UNMOVEABLE_BLOCK
+            elif r<0.31:
+                block_index=random.choice([0,1,2])
+                grid[y][x]=(MOVEABLE_BLOCK,block_index)
+    enemy_positions=[]
+    while len(enemy_positions)<num_enemies:
+        rx=random.randint(1,GRID_WIDTH-2)
+        ry=random.randint(1,GRID_HEIGHT-2)
+        if cell_type(grid[ry][rx])==EMPTY:
+            grid[ry][rx]=ENEMY
+            enemy_positions.append((rx,ry))
+    best_pos=None
+    best_dist=-1
+    for yy in range(1,GRID_HEIGHT-1):
+        for xx in range(1,GRID_WIDTH-1):
+            if cell_type(grid[yy][xx])==EMPTY:
+                dist=min(abs(xx-ex)+abs(yy-ey) for ex,ey in enemy_positions) if enemy_positions else 999
+                if dist>best_dist:
+                    best_dist=dist
+                    best_pos=(xx,yy)
+    if best_pos:
+        grid[best_pos[1]][best_pos[0]]=PLAYER
+    return grid
+
+def play_level(level,screen,clock,cumulative_score):
+    global lives
+    hunters,move_speed,move_accuracy=get_level_params(level)
+    initial_hunters=hunters
+    grid=generate_level(hunters)
+    stats={'moves':0,'enemies_eliminated':0}
+    level_start_time=pygame.time.get_ticks()
+    enemy_update_interval=move_speed
+    last_enemy_update=pygame.time.get_ticks()
+
     while True:
         for event in pygame.event.get():
-            if event.type == QUIT:
+            if event.type==QUIT:
                 pygame.quit()
                 sys.exit()
-            elif event.type == KEYDOWN:
-                if event.key == K_ESCAPE:
+            elif event.type==KEYDOWN:
+                if event.key==K_ESCAPE:
                     pygame.quit()
                     sys.exit()
-                # We no longer call pygame.key.set_repeat(), so arrow keys won't auto-repeat.
-                if event.key in (K_UP, K_DOWN, K_LEFT, K_RIGHT):
-                    old_pos = get_player_position(grid)
-                    if event.key == K_UP:
-                        direction = (0, -1)
-                    elif event.key == K_DOWN:
-                        direction = (0, 1)
-                    elif event.key == K_LEFT:
-                        direction = (-1, 0)
-                    elif event.key == K_RIGHT:
-                        direction = (1, 0)
-                    grid = move_player_direction(grid, direction, stats, screen)
-                    new_pos = get_player_position(grid)
-                    if old_pos != new_pos:
-                        stats['moves'] += 1
-        
-        current_time = pygame.time.get_ticks()
-        if current_time - last_enemy_update >= enemy_update_interval:
-            grid = update_enemies(grid, move_accuracy, screen)
-            last_enemy_update = current_time
-        
-        draw_grid(screen, grid)
-        draw_status_line(screen, grid, level_start_time, lives, level, cumulative_score, initial_hunters)
+                if event.key in (K_UP,K_DOWN,K_LEFT,K_RIGHT):
+                    old_pos=get_player_position(grid)
+                    if event.key==K_UP:
+                        dir=(0,-1)
+                    elif event.key==K_DOWN:
+                        dir=(0,1)
+                    elif event.key==K_LEFT:
+                        dir=(-1,0)
+                    elif event.key==K_RIGHT:
+                        dir=(1,0)
+                    grid=move_player_direction(grid,dir,stats,screen)
+                    new_pos=get_player_position(grid)
+                    if old_pos!=new_pos:
+                        stats['moves']+=1
+
+        current_time=pygame.time.get_ticks()
+        if current_time-last_enemy_update>=enemy_update_interval:
+            grid=update_enemies(grid,move_accuracy,screen)
+            last_enemy_update=current_time
+
+        draw_grid(screen,grid)
+        draw_status_line(screen,grid,level_start_time,lives,level,cumulative_score,initial_hunters)
         pygame.display.flip()
         clock.tick(10)
-        
-        enemy_exists = any(cell_type(cell) == ENEMY for row in grid for cell in row)
+
+        # Check if level is complete (no enemies).
+        enemy_exists = any(cell_type(c)==ENEMY for row in grid for c in row)
         if not enemy_exists:
             break
 
-    level_end_time = pygame.time.get_ticks()
-    time_taken = (level_end_time - level_start_time) // 1000  # in seconds
-    stats['enemies_eliminated'] = hunters  
-    level_score = stats['enemies_eliminated'] * (2 * level)
-    return stats['moves'], stats['enemies_eliminated'], time_taken, level_score
+    level_end_time=pygame.time.get_ticks()
+    time_taken=(level_end_time-level_start_time)//1000
+    stats['enemies_eliminated']=hunters
+    level_score=stats['enemies_eliminated']*(2*level)
+    return stats['moves'],stats['enemies_eliminated'],time_taken,level_score
 
 def main():
     global lives
     pygame.init()
-    # Removed the line: pygame.key.set_repeat(200, 50)
-    
-    screen = pygame.display.set_mode((GRID_WIDTH * CELL_SIZE, GRID_HEIGHT * CELL_SIZE + STATUS_HEIGHT))
-    clock = pygame.time.Clock()
-    
-    # Load images.
-    images['player'] = pygame.image.load("player.png").convert_alpha()
-    images['wall']   = pygame.image.load("wall.png").convert_alpha()
-    images['enemy']  = pygame.image.load("hunter.png").convert_alpha()
-    images['block']  = [
-        pygame.image.load("block1.png").convert_alpha(),
-        pygame.image.load("block2.png").convert_alpha(),
-        pygame.image.load("block3.png").convert_alpha()
-    ]
-    images['player'] = pygame.transform.scale(images['player'], (CELL_SIZE, CELL_SIZE))
-    images['wall']   = pygame.transform.scale(images['wall'], (CELL_SIZE, CELL_SIZE))
-    images['enemy']  = pygame.transform.scale(images['enemy'], (CELL_SIZE, CELL_SIZE))
-    for i in range(len(images['block'])):
-        images['block'][i] = pygame.transform.scale(images['block'][i], (CELL_SIZE, CELL_SIZE))
-    
-    # Load sounds.
-    sounds['squish'] = pygame.mixer.Sound("squish.wav")
-    sounds['collision'] = pygame.mixer.Sound("collision.wav")
-    
-    cumulative_score = 0
-    level = 1
-    lives = 3  # Reset lives at game start.
-    while True:
-        moves, enemies, time_taken, level_score = play_level(level, screen, clock, cumulative_score)
-        cumulative_score += level_score
-        show_level_complete_screen(screen, level, moves, enemies, time_taken, level_score, cumulative_score)
-        level += 1
+    # The window is 2 glyphs wide × 8 px each × scale_x=2 => 32 px per cell horizontally,
+    # and 1 glyph tall × 16 px × scale_y=2 => 32 px per cell vertically.
+    screen_w = GRID_WIDTH * (CHAR_WIDTH*SCALE_X) * 2
+    screen_h = GRID_HEIGHT * (CHAR_HEIGHT*SCALE_Y) + STATUS_HEIGHT
+    screen=pygame.display.set_mode((screen_w, screen_h))
+    clock=pygame.time.Clock()
 
-if __name__ == '__main__':
+    # Load sprite sheet for code-page-437 glyphs.
+    load_sprite_sheet("dos_spritesheet.png")
+
+    # Load sounds.
+    sounds['squish']    = pygame.mixer.Sound("squish.wav")
+    sounds['collision'] = pygame.mixer.Sound("collision.wav")
+
+    # Initialize game.
+    cumulative_score=0
+    level=1
+    lives=3
+
+    # Main loop
+    while True:
+        moves,enemies,time_taken,level_score=play_level(level,screen,clock,cumulative_score)
+        cumulative_score+=level_score
+        show_level_complete_screen(screen,level,moves,enemies,time_taken,level_score,cumulative_score)
+        level+=1
+
+if __name__=="__main__":
     main()
