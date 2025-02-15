@@ -1,12 +1,10 @@
-"""
 #############################################################
 ##                                                         ##
-##                 S Q U I S H  v2.2.7                     ##
+##                 S Q U I S H  v2.2.8                     ##
 ##                                                         ##
-##       (c) 2025 Michel Vuijlsteke - Codepage Edition      ##
+##       (c) 2025 Michel Vuijlsteke - Codepage Edition     ##
 ##                                                         ##
 #############################################################
-"""
 
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
@@ -104,10 +102,11 @@ def encrypt_xor(data: bytes, key: int = 0xAA) -> bytes:
     return bytes(b ^ key for b in data)
 
 def decrypt_xor(data: bytes, key: int = 0xAA) -> bytes:
+    # Note that XOR decrypt is the same as encrypt
     return encrypt_xor(data, key)
 
 def load_highscores() -> list:
-    """Load high scores from SCORE_FILE. Each line: date|level|score|name"""
+    """Load high scores from SCORE_FILE. Each line: date|level|score|name."""
     if not os.path.exists(SCORE_FILE):
         return []
     try:
@@ -120,6 +119,7 @@ def load_highscores() -> list:
             parts = line.split("|")
             if len(parts) == 4:
                 dt_str, lvl_str, scr_str, name_str = parts
+                # Rebuild the tuple as (score, date, level, name)
                 scores.append((int(scr_str), dt_str, int(lvl_str), name_str))
         scores.sort(key=lambda s: s[0], reverse=True)
         return scores
@@ -162,14 +162,67 @@ def ask_player_name() -> str:
         pygame.display.flip()
         clock.tick(15)
 
-def maybe_record_highscore(total_score: int, level: int):
-    """If total_score qualifies for the top 20, ask for name and record the score."""
+def show_highscores_screen(scores, screen):
+    """
+    Display the top 20 high scores as (name, date, level, score).
+    Wait for a key press before returning.
+    """
+    scores = sorted(scores, key=lambda s: s[0], reverse=True)[:20]
+    screen.fill((0, 0, 0))
+
+    title = "=== TOP 20 HIGH SCORES ==="
+    total_width = GRID_WIDTH * (CHAR_WIDTH * SCALE_X * 2)
+    y = 50
+
+    # Centered title
+    lw = len(title) * CHAR_WIDTH * SCALE_X
+    x = (total_width - lw) // 2
+    draw_text(screen, title, x, y, TEXT_COLOR_DEFAULT)
+    y += 50
+
+    # Column headers (optional)
+    headers = f"{'NAME':<15} {'DATE':<19} {'LVL':<4} {'SCORE':>6}"
+    lw = len(headers) * CHAR_WIDTH * SCALE_X
+    x = (total_width - lw) // 2
+    draw_text(screen, headers, x, y, TEXT_COLOR_DEFAULT)
+    y += 30
+
+    # Score lines
+    for (scr, dt_str, lvl, name_str) in scores:
+        # Truncate or pad name/date if needed
+        line = f"{name_str:<15} {dt_str:<19} {lvl:<4} {scr:>6}"
+        lw = len(line) * CHAR_WIDTH * SCALE_X
+        x = (total_width - lw) // 2
+        draw_text(screen, line, x, y, TEXT_COLOR_DEFAULT)
+        y += 25
+
+    pygame.display.flip()
+
+    clock = pygame.time.Clock()
+    waiting = True
+    while waiting:
+        for event in pygame.event.get():
+            if event.type == QUIT:
+                pygame.quit()
+                sys.exit()
+            elif event.type == KEYDOWN:
+                waiting = False
+        clock.tick(15)
+
+def maybe_record_highscore(total_score: int, level: int, screen):
+    """
+    If total_score qualifies for the top 20, ask for name and record the score.
+    Then display the top 20 high scores.
+    """
     scores = load_highscores()
+    # If not enough entries, or the new score is higher than the last in the list
     if len(scores) < 20 or total_score > scores[-1][0]:
         name = ask_player_name()
         dt_str = datetime.datetime.now().isoformat(timespec="seconds")
         scores.append((total_score, dt_str, level, name))
         save_highscores(scores)
+        # Show the scoreboard right after saving
+        show_highscores_screen(scores, screen)
 
 # -----------------------------------------------------------
 # 5b) PAUSE AND QUIT CONFIRMATION
@@ -185,8 +238,10 @@ def pause_game(screen):
                 sys.exit()
             elif event.type == KEYDOWN:
                 if event.key in (K_q, ord('q')):
+                    # User wants to quit
                     if quit_confirm(screen):
-                        maybe_record_highscore(current_score, current_level)
+                        # On confirm, record high score if applicable, then exit
+                        maybe_record_highscore(current_score, current_level, screen)
                         pygame.quit()
                         sys.exit()
                 elif event.key == K_SPACE:
@@ -230,9 +285,7 @@ def quit_confirm(screen) -> bool:
 
 # -----------------------------------------------------------
 # 6c) SPRITE-SHEET TEXT RENDERING FUNCTIONS
-# (load_sprite_sheet, draw_char, draw_text already defined above)
 # -----------------------------------------------------------
-
 def load_sprite_sheet(filename):
     """Load the code-page 437 sprite sheet from file."""
     global sprite_sheet
@@ -256,13 +309,7 @@ def draw_char(surface, ch, x, y, color):
     scaled_w = CHAR_WIDTH * SCALE_X
     scaled_h = CHAR_HEIGHT * SCALE_Y
     char_surf = pygame.transform.scale(char_surf, (scaled_w, scaled_h))
-
-    # If color == black, let's do a colorkey approach so the black text is visible on a non-black background.
-    # But since our status line background is black, it's simpler to always do the multiply approach.
-    # We'll just multiply the glyph by the color. If color is black, it might vanish if the sprite is also black.
-    # If you do want black text on black background, you'd do a special approach. But here we do:
     char_surf = tint_surface(char_surf, color)
-
     surface.blit(char_surf, (x, y))
 
 def draw_text(surface, text, x, y, color):
@@ -353,8 +400,8 @@ def get_player_position(grid):
 
 def place_player_best_spot(grid):
     """
-    Place the player in the cell that is maximally far from enemies and, among ties,
-    maximally far from any blocks.
+    Place the player in the cell that is maximally far from enemies and,
+    among ties, maximally far from any blocks.
     """
     enemies = []
     blocks = []
@@ -404,11 +451,17 @@ def game_over_screen(screen):
     pygame.time.wait(3000)
 
 def handle_collision(grid, screen):
+    """
+    Called when an enemy collides with the player.
+    Decrement life. If lives <= 0, record highscore, game over, exit.
+    Otherwise respawn the player.
+    """
     global lives, current_score, current_level
     sounds['collision'].play()
     lives -= 1
     if lives <= 0:
-        maybe_record_highscore(current_score, current_level)
+        # Record any potential high score right now
+        maybe_record_highscore(current_score, current_level, screen)
         game_over_screen(screen)
         pygame.quit()
         sys.exit()
@@ -441,17 +494,20 @@ def push_blocks(grid, start_pos, direction, stats, screen):
     dx, dy = direction
     chain = []
     cx, cy = x + dx, y + dy
+    # Gather all consecutive moveable blocks
     while cell_type(grid[cy][cx]) == MOVEABLE_BLOCK:
         chain.append((cx, cy))
         cx += dx
         cy += dy
     t = cell_type(grid[cy][cx])
+    # If final spot is EMPTY, push chain forward
     if t == EMPTY:
         for bx, by in reversed(chain):
             grid[by+dy][bx+dx] = grid[by][bx]
             grid[by][bx] = EMPTY
         grid[y+dy][x+dx] = PLAYER
         grid[y][x] = EMPTY
+    # If final spot is ENEMY, squish it if next cell is blocked
     elif t == ENEMY:
         nx, ny = cx + dx, cy + dy
         if cell_type(grid[ny][nx]) in [MOVEABLE_BLOCK, UNMOVEABLE_BLOCK]:
@@ -468,16 +524,25 @@ def push_blocks(grid, start_pos, direction, stats, screen):
 # 12) ENEMY AI: A* PATHFINDING AND RANDOM MOVEMENT
 # -----------------------------------------------------------
 def a_star_path(grid, start, goal):
+    """
+    Simple 8-direction A* search. 
+    Returns a list of (x,y) positions from start to goal (including both).
+    If no path found, returns empty list.
+    """
     def heuristic(a, b):
+        # Chebyshev distance if diagonals are allowed
         return max(abs(a[0]-b[0]), abs(a[1]-b[1]))
+    
     open_set = []
     heappush(open_set, (0, start))
     came_from = {}
     g_score = {start: 0}
     f_score = {start: heuristic(start, goal)}
+    
     while open_set:
         _, current = heappop(open_set)
         if current == goal:
+            # Reconstruct the path
             path = [current]
             while current in came_from:
                 current = came_from[current]
@@ -492,6 +557,7 @@ def a_star_path(grid, start, goal):
                 ny = current[1] + ddy
                 if not (0 <= nx < GRID_WIDTH and 0 <= ny < GRID_HEIGHT):
                     continue
+                # We can move through empty or directly onto the player's cell (goal)
                 if (nx, ny) != goal and cell_type(grid[ny][nx]) != EMPTY:
                     continue
                 tentative = g_score[current] + 1
@@ -507,17 +573,22 @@ def update_enemies(grid, move_accuracy, screen):
     player_pos = get_player_position(grid)
     if not player_pos:
         return grid
+    
     enemies = []
     for y in range(GRID_HEIGHT):
         for x in range(GRID_WIDTH):
             if cell_type(grid[y][x]) == ENEMY:
                 enemies.append((x, y))
+                
     collision_occurred = False
     for ex, ey in enemies:
         if collision_occurred:
             break
+        
         path = a_star_path(grid, (ex, ey), player_pos)
         moved = False
+        
+        # If we got a path of length >= 2 and we pass the random check, move along it
         if len(path) >= 2 and random.random() < (move_accuracy / 100.0):
             nx, ny = path[1]
             t = cell_type(grid[ny][nx])
@@ -529,10 +600,14 @@ def update_enemies(grid, move_accuracy, screen):
                 grid[ny][nx] = ENEMY
                 grid[ey][ex] = EMPTY
                 moved = True
+        
+        # Random fallback if no path or decided not to move
         if not moved:
-            mv = random.choice([(-1, -1), (0, -1), (1, -1),
-                                 (-1,  0),          (1,  0),
-                                 (-1,  1), (0,  1), (1,  1)])
+            mv = random.choice([
+                (-1, -1), (0, -1), (1, -1),
+                (-1,  0),          (1,  0),
+                (-1,  1), (0,  1), (1,  1)
+            ])
             nx = ex + mv[0]
             ny = ey + mv[1]
             if 0 <= nx < GRID_WIDTH and 0 <= ny < GRID_HEIGHT:
@@ -578,12 +653,14 @@ def get_level_params(level):
 
 def generate_level(num_enemies):
     grid = [[EMPTY for _ in range(GRID_WIDTH)] for _ in range(GRID_HEIGHT)]
+    # Border walls
     for x in range(GRID_WIDTH):
         grid[0][x] = UNMOVEABLE_BLOCK
         grid[GRID_HEIGHT-1][x] = UNMOVEABLE_BLOCK
     for y in range(GRID_HEIGHT):
         grid[y][0] = UNMOVEABLE_BLOCK
         grid[y][GRID_WIDTH-1] = UNMOVEABLE_BLOCK
+    # Random blocks
     for y in range(1, GRID_HEIGHT-1):
         for x in range(1, GRID_WIDTH-1):
             r = random.random()
@@ -592,6 +669,7 @@ def generate_level(num_enemies):
             elif r < 0.31:
                 block_index = random.choice([0, 1, 2])
                 grid[y][x] = (MOVEABLE_BLOCK, block_index)
+    # Enemies
     enemy_positions = []
     while len(enemy_positions) < num_enemies:
         rx = random.randint(1, GRID_WIDTH-2)
@@ -626,7 +704,8 @@ def play_level(level, screen, clock, cumulative_score):
                     pause_game(screen)
                 elif event.key in (K_q, ord('q')):
                     if quit_confirm(screen):
-                        maybe_record_highscore(current_score, current_level)
+                        # If user really quits, record high score, then exit
+                        maybe_record_highscore(current_score, current_level, screen)
                         pygame.quit()
                         sys.exit()
                 elif event.key in (K_UP, K_DOWN, K_LEFT, K_RIGHT):
@@ -654,10 +733,12 @@ def play_level(level, screen, clock, cumulative_score):
         pygame.display.flip()
         clock.tick(10)
 
+        # Check if all enemies are gone (level clear)
         enemy_exists = any(cell_type(c) == ENEMY for row in grid for c in row)
         if not enemy_exists:
             break
 
+    # Level complete
     level_end_time = pygame.time.get_ticks()
     time_taken = (level_end_time - level_start_time) // 1000
     stats['enemies_eliminated'] = hunters
@@ -717,11 +798,14 @@ def main():
     lives = 3
 
     while True:
+        # Play a level
         moves, enemies, time_taken, level_score = play_level(level, screen, clock, cumulative_score)
+        # Update cumulative score
         cumulative_score += level_score
+        # Show "level complete" info
         show_level_complete_screen(screen, level, moves, enemies, time_taken, level_score, cumulative_score)
         level += 1
-        maybe_record_highscore(cumulative_score, level)
+        # (Removed the previous per-level high-score check here.)
 
 if __name__ == "__main__":
     main()
