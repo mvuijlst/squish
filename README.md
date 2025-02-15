@@ -34,7 +34,7 @@ Requires Python and `pygame`. Install dependencies and run:
 git clone https://github.com/mvuijlst/squish.git
 cd squish
 pip install -r requirements.txt
-python o3squish.py
+python squish.py
 ```
 
 ### Running the Executable
