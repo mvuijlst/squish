@@ -1,15 +1,20 @@
 """
 #############################################################
 ##                                                         ##
-##                 S Q U I S H  v2.0.6                     ##
+##                 S Q U I S H  v2.0.8                     ##
 ##                                                         ##
 ##              (c) 2025 Michel Vuijlsteke                 ##
 ##                                                         ##
 #############################################################
 """
 
+import os
+# Hide the Pygame support prompt.
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
+
 import pygame, random, sys
 from pygame.locals import *
+from heapq import heappush, heappop
 
 # Define cell types.
 EMPTY = 0
@@ -32,8 +37,42 @@ def cell_type(cell):
 # Global dictionary to hold our images.
 images = {}
 
-def generate_level():
-    """Generates and returns a new grid for the level."""
+def get_level_params(level):
+    """
+    Returns (hunters, move_speed, move_accuracy) for the given level.
+    - hunters: number of enemy hunters.
+    - move_speed: enemy update interval in milliseconds.
+    - move_accuracy: percentage chance an enemy will follow the A* path.
+    """
+    if level == 1:
+        return 3, 1000, 50
+    elif level == 2:
+        return 4, 1000, 50
+    elif level == 3:
+        return 5, 1000, 50
+    elif level == 4:
+        return 6, 1000, 50
+    elif level == 5:
+        return 6, 900, 50
+    elif level == 6:
+        return 6, 800, 50
+    elif level == 7:
+        return 6, 700, 50
+    elif level == 8:
+        return 6, 700, 55
+    elif level == 9:
+        return 6, 700, 60
+    elif level == 10:
+        return 6, 700, 65
+    elif level == 11:
+        return 7, 700, 70
+    else:
+        # For levels beyond 11, increase hunters gradually.
+        hunters = 7 + ((level - 11) // 4)
+        return hunters, 700, 70
+
+def generate_level(num_enemies):
+    """Generates and returns a new grid for the level, spawning num_enemies hunters."""
     grid = [[EMPTY for _ in range(GRID_WIDTH)] for _ in range(GRID_HEIGHT)]
     
     # Create outer walls (unmoveable blocks) using wall.png.
@@ -52,13 +91,10 @@ def generate_level():
             if r < 0.01:
                 grid[y][x] = UNMOVEABLE_BLOCK
             elif r < 0.01 + 0.30:
-                # For a moveable block, randomly choose one of three block images.
                 block_index = random.choice([0, 1, 2])
                 grid[y][x] = (MOVEABLE_BLOCK, block_index)
-            # Otherwise, cell remains EMPTY.
     
-    # Spawn enemies (5 per level) in random empty cells.
-    num_enemies = 5
+    # Spawn hunters (enemies) in random empty cells.
     enemy_positions = []
     while len(enemy_positions) < num_enemies:
         x = random.randint(1, GRID_WIDTH - 2)
@@ -73,7 +109,6 @@ def generate_level():
     for y in range(1, GRID_HEIGHT - 1):
         for x in range(1, GRID_WIDTH - 1):
             if cell_type(grid[y][x]) == EMPTY:
-                # Use Manhattan distance.
                 min_dist = min(abs(x - ex) + abs(y - ey) for ex, ey in enemy_positions)
                 if min_dist > best_distance:
                     best_distance = min_dist
@@ -96,14 +131,12 @@ def draw_grid(screen, grid):
             if typ == PLAYER:
                 screen.blit(images['player'], pos)
             elif typ == MOVEABLE_BLOCK:
-                # cell is a tuple: (MOVEABLE_BLOCK, block_index)
                 block_index = cell[1]
                 screen.blit(images['block'][block_index], pos)
             elif typ == UNMOVEABLE_BLOCK:
                 screen.blit(images['wall'], pos)
             elif typ == ENEMY:
                 screen.blit(images['enemy'], pos)
-    # (No grid lines are drawn; the background remains black.)
 
 def get_player_position(grid):
     """Returns the (x,y) position of the player in the grid."""
@@ -123,14 +156,11 @@ def move_player(grid, direction, stats):
     target_x = player_pos[0] + dx
     target_y = player_pos[1] + dy
 
-    # If the target cell is empty, move the player.
     if cell_type(grid[target_y][target_x]) == EMPTY:
         grid[player_pos[1]][player_pos[0]] = EMPTY
         grid[target_y][target_x] = PLAYER
-    # If the target cell has a moveable block, attempt to push it.
     elif cell_type(grid[target_y][target_x]) == MOVEABLE_BLOCK:
         grid = push_blocks(grid, player_pos, direction, stats)
-    # If the target cell is a wall or enemy, do nothing.
     return grid
 
 def push_blocks(grid, start_pos, direction, stats):
@@ -149,18 +179,15 @@ def push_blocks(grid, start_pos, direction, stats):
         cur_x += dx
         cur_y += dy
 
-    # Case 1: The cell beyond the chain is EMPTY.
     if cell_type(grid[cur_y][cur_x]) == EMPTY:
         for bx, by in reversed(chain):
             grid[by + dy][bx + dx] = grid[by][bx]
             grid[by][bx] = EMPTY
         grid[y + dy][x + dx] = PLAYER
         grid[y][x] = EMPTY
-    # Case 2: The cell beyond the chain contains an enemy.
     elif cell_type(grid[cur_y][cur_x]) == ENEMY:
         next_x = cur_x + dx
         next_y = cur_y + dy
-        # Only squish the enemy if the cell beyond it is occupied by a block or wall.
         if cell_type(grid[next_y][next_x]) in [MOVEABLE_BLOCK, UNMOVEABLE_BLOCK]:
             for bx, by in reversed(chain):
                 grid[by + dy][bx + dx] = grid[by][bx]
@@ -168,24 +195,62 @@ def push_blocks(grid, start_pos, direction, stats):
             grid[y + dy][x + dx] = PLAYER
             grid[y][x] = EMPTY
             stats['enemies_eliminated'] += 1
-        else:
-            # Enemy acts as an unmoveable block.
-            pass
     return grid
 
-def update_enemies(grid):
+def a_star_path(grid, start, goal):
     """
-    Moves each enemy toward the player with some randomness.
-    Enemies now can move diagonally. Each enemy computes an optimal
-    move (diagonal when appropriate) and with 70% probability takes that move;
-    otherwise, it picks a random move from the 8 possible directions.
-    Enemies move only into EMPTY cells.
+    Computes a path from start to goal using the A* algorithm.
+    Returns a list of (x, y) positions (including start and goal)
+    or an empty list if no path is found.
+    A cell is passable if it is EMPTY or if it is the goal.
+    """
+    def heuristic(a, b):
+        return max(abs(a[0]-b[0]), abs(a[1]-b[1]))
+    
+    open_set = []
+    heappush(open_set, (0, start))
+    came_from = {}
+    g_score = {start: 0}
+    f_score = {start: heuristic(start, goal)}
+    
+    while open_set:
+        current_f, current = heappop(open_set)
+        if current == goal:
+            path = [current]
+            while current in came_from:
+                current = came_from[current]
+                path.append(current)
+            path.reverse()
+            return path
+        
+        for dx in [-1, 0, 1]:
+            for dy in [-1, 0, 1]:
+                if dx == 0 and dy == 0:
+                    continue
+                neighbor = (current[0] + dx, current[1] + dy)
+                if not (0 <= neighbor[0] < GRID_WIDTH and 0 <= neighbor[1] < GRID_HEIGHT):
+                    continue
+                if neighbor != goal and cell_type(grid[neighbor[1]][neighbor[0]]) != EMPTY:
+                    continue
+                tentative_g = g_score[current] + 1
+                if neighbor in g_score and tentative_g >= g_score[neighbor]:
+                    continue
+                came_from[neighbor] = current
+                g_score[neighbor] = tentative_g
+                f_score[neighbor] = tentative_g + heuristic(neighbor, goal)
+                heappush(open_set, (f_score[neighbor], neighbor))
+    return []
+
+def update_enemies(grid, move_accuracy):
+    """
+    Moves each enemy toward the player using A* pathfinding.
+    With probability equal to move_accuracy, an enemy follows its computed path;
+    otherwise, it picks a random move from the 8 directions.
     """
     player_pos = get_player_position(grid)
     if not player_pos:
         return grid
 
-    player_x, player_y = player_pos
     enemy_positions = []
     for y in range(GRID_HEIGHT):
         for x in range(GRID_WIDTH):
@@ -193,25 +258,26 @@ def update_enemies(grid):
                 enemy_positions.append((x, y))
     
     for ex, ey in enemy_positions:
-        # Calculate optimal move using sign differences (allowing diagonal).
-        dx = 1 if player_x > ex else -1 if player_x < ex else 0
-        dy = 1 if player_y > ey else -1 if player_y < ey else 0
-        optimal_move = (dx, dy)
-        # With 70% probability, choose the optimal move.
-        if random.random() < 0.7:
-            move = optimal_move
-        else:
-            # Otherwise choose randomly among all eight possible directions.
+        path = a_star_path(grid, (ex, ey), player_pos)
+        moved = False
+        if len(path) >= 2 and random.random() < (move_accuracy / 100.0):
+            next_step = path[1]
+            if cell_type(grid[next_step[1]][next_step[0]]) == EMPTY:
+                grid[next_step[1]][next_step[0]] = ENEMY
+                grid[ey][ex] = EMPTY
+                moved = True
+        if not moved:
             move = random.choice([
                 (-1, -1), (0, -1), (1, -1),
                 (-1,  0),          (1,  0),
                 (-1,  1), (0,  1), (1,  1)
             ])
-        new_x = ex + move[0]
-        new_y = ey + move[1]
-        if cell_type(grid[new_y][new_x]) == EMPTY:
-            grid[new_y][new_x] = ENEMY
-            grid[ey][ex] = EMPTY
+            new_x = ex + move[0]
+            new_y = ey + move[1]
+            if 0 <= new_x < GRID_WIDTH and 0 <= new_y < GRID_HEIGHT:
+                if cell_type(grid[new_y][new_x]) == EMPTY:
+                    grid[new_y][new_x] = ENEMY
+                    grid[ey][ex] = EMPTY
     return grid
 
 def show_level_complete_screen(screen, level, moves, enemies, time_taken, level_score, cumulative_score):
@@ -254,16 +320,15 @@ def show_level_complete_screen(screen, level, moves, enemies, time_taken, level_
 
 def play_level(level, screen, clock):
     """
-    Plays a single level. Returns the moves taken, number of enemies
-    eliminated, time taken (in seconds), and the level score.
+    Plays a single level.
+    Returns the moves taken, number of enemies eliminated, time taken (seconds), and the level score.
     """
-    grid = generate_level()
+    hunters, move_speed, move_accuracy = get_level_params(level)
+    grid = generate_level(hunters)
     stats = {'moves': 0, 'enemies_eliminated': 0}
     level_start_time = pygame.time.get_ticks()
     
-    # Ramp up enemy movement speed: level 1 = 1000ms; decrease by 100ms per level,
-    # but never less than 250ms.
-    enemy_update_interval = max(250, 1000 - (level - 1) * 100)
+    enemy_update_interval = move_speed
     last_enemy_update = pygame.time.get_ticks()
     
     while True:
@@ -275,7 +340,6 @@ def play_level(level, screen, clock):
                 if event.key == K_ESCAPE:
                     pygame.quit()
                     sys.exit()
-                # The arrow keys now repeat due to key repeat being enabled.
                 if event.key in (K_UP, K_DOWN, K_LEFT, K_RIGHT):
                     old_pos = get_player_position(grid)
                     if event.key == K_UP:
@@ -293,36 +357,31 @@ def play_level(level, screen, clock):
         
         current_time = pygame.time.get_ticks()
         if current_time - last_enemy_update >= enemy_update_interval:
-            grid = update_enemies(grid)
+            grid = update_enemies(grid, move_accuracy)
             last_enemy_update = current_time
         
         draw_grid(screen, grid)
         pygame.display.flip()
         clock.tick(10)
         
-        # Check if the level is complete (no enemies left).
         enemy_exists = any(cell_type(cell) == ENEMY for row in grid for cell in row)
         if not enemy_exists:
             break
 
     level_end_time = pygame.time.get_ticks()
-    time_taken = (level_end_time - level_start_time) // 1000  # in seconds
-
-    # For now, we know 5 enemies were spawned per level.
-    stats['enemies_eliminated'] = 5  
+    time_taken = (level_end_time - level_start_time) // 1000  # seconds
+    stats['enemies_eliminated'] = hunters  
     level_score = stats['enemies_eliminated'] * (2 * level)
     
     return stats['moves'], stats['enemies_eliminated'], time_taken, level_score
 
 def main():
     pygame.init()
-    # Enable key repeat: delay 200ms, then every 50ms.
     pygame.key.set_repeat(200, 50)
     screen = pygame.display.set_mode((GRID_WIDTH * CELL_SIZE, GRID_HEIGHT * CELL_SIZE))
     clock = pygame.time.Clock()
     
     global images
-    # Load images.
     images['player'] = pygame.image.load("player.png").convert_alpha()
     images['wall']   = pygame.image.load("wall.png").convert_alpha()
     images['enemy']  = pygame.image.load("hunter.png").convert_alpha()
@@ -331,7 +390,6 @@ def main():
         pygame.image.load("block2.png").convert_alpha(),
         pygame.image.load("block3.png").convert_alpha()
     ]
-    # Scale images from 16x16 to 32x32 pixels.
     images['player'] = pygame.transform.scale(images['player'], (CELL_SIZE, CELL_SIZE))
     images['wall']   = pygame.transform.scale(images['wall'], (CELL_SIZE, CELL_SIZE))
     images['enemy']  = pygame.transform.scale(images['enemy'], (CELL_SIZE, CELL_SIZE))
