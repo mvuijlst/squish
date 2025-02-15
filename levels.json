@@ -5,7 +5,7 @@
             "hunter": {
                 "count": 3,
                 "speed_ms": 1000,
-                "accuracy": 50,
+                "accuracy": 100,
                 "speed_variability": 0
             },
             "pusher": {
@@ -13,6 +13,12 @@
                 "radius": 8,
                 "speed_ms": 1000,
                 "accuracy": 100,
+                "speed_variability": 0
+            },
+            "sentinel": {
+                "count": 1,
+                "speed_ms": 1500,
+                "accuracy": 80,
                 "speed_variability": 0
             }
         }
