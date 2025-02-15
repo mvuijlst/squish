@@ -1,15 +1,21 @@
 #############################################################
 ##                                                         ##
-##                 S Q U I S H  v2.3.1                     ##
+##        S Q U I S H  v2.3.3  (Improved Player Spawn)     ##
 ##                                                         ##
-##       (c) 2025 Michel Vuijlsteke - Codepage Edition     ##
+##    JSON-based levels, eggs, collisions, A* pathfinding  ##
+##    Player spawn is far from enemies -> blocks -> edges  ##
+##    Spawn animation to highlight player's new position   ##
 ##                                                         ##
 #############################################################
 
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 
-import pygame, random, sys, datetime
+import pygame
+import random
+import sys
+import datetime
+import json
 from pygame.locals import *
 from heapq import heappush, heappop
 
@@ -17,47 +23,42 @@ from heapq import heappush, heappop
 # 1) BASIC CONFIGURATION
 # -----------------------------------------------------------
 
-# Grid cell types.
+# Grid cell types
 EMPTY = 0
 PLAYER = 1
 MOVEABLE_BLOCK = 2
 UNMOVEABLE_BLOCK = 3
 ENEMY = 4
-EGG = 5  # Treat as "unmoveable enemy" for collisions/pathfinding
+EGG = 5
 
-# Grid size: 40×25 cells; each cell is 32×32 pixels.
 GRID_WIDTH  = 40
 GRID_HEIGHT = 25
 CELL_SIZE   = 32
-STATUS_HEIGHT = CELL_SIZE  # Extra vertical space for the status line
+STATUS_HEIGHT = CELL_SIZE
 
-# Sprite sheet parameters:
-# Our code page 437 sprite sheet contains glyphs that are 8×16 pixels.
 CHAR_WIDTH  = 8
 CHAR_HEIGHT = 16
-# We scale both dimensions by 2 so that each glyph becomes 16×32.
 SCALE_X = 2
 SCALE_Y = 2
-# Each cell is rendered as 2 glyphs wide (2 * 16 = 32) and 1 glyph tall (32).
 SHEET_COLS = 16
 SHEET_ROWS = 16
 
 # -----------------------------------------------------------
-# 2) COLOR DEFINITIONS (RGB)
+# 2) COLOR DEFINITIONS
 # -----------------------------------------------------------
 PLAYER_COLOR       = (0x59, 0xe1, 0xe3)  # #59e1e3
 WALL_COLOR         = (0xff, 0xea, 0x16)  # #ffea16
 HUNTER_COLOR       = (0xff, 0x16, 0xb0)  # #ff16b0
 BLOCK_COLOR        = (0xee, 0xee, 0xee)  # #eeeeee
-TEXT_COLOR_DEFAULT = (0xee, 0xee, 0xee)  # for grid/level screens
-STATUS_BG_COLOR    = (0x00, 0x00, 0x00)  # black background for status line
-STATUS_FG_COLOR    = (0xee, 0xee, 0xee)  # light text for status line
+TEXT_COLOR_DEFAULT = (0xee, 0xee, 0xee)
+STATUS_BG_COLOR    = (0x00, 0x00, 0x00)
+STATUS_FG_COLOR    = (0xee, 0xee, 0xee)
 
 # Egg color transitions
-EGG_COLOR_0        = (0xfa, 0xe9, 0x01)  # #fae901 (0–75% done)
-EGG_COLOR_1        = (0xfa, 0x82, 0x01)  # #fa8201 (75–90% done)
-EGG_COLOR_FLASH1   = (0xfa, 0x01, 0x01)  # #fa0101 (>90%, flash color 1)
-EGG_COLOR_FLASH2   = (0xff, 0xff, 0xff)  # #ffffff (>90%, flash color 2)
+EGG_COLOR_0        = (0xfa, 0xe9, 0x01)  # #fae901
+EGG_COLOR_1        = (0xfa, 0x82, 0x01)  # #fa8201
+EGG_COLOR_FLASH1   = (0xfa, 0x01, 0x01)  # #fa0101
+EGG_COLOR_FLASH2   = (0xff, 0xff, 0xff)  # #ffffff
 
 # -----------------------------------------------------------
 # 3) GLOBAL RESOURCES
@@ -68,55 +69,43 @@ lives = 3
 current_level = 0
 current_score = 0
 
+# We’ll store level definitions from JSON in this global variable
+levels_data = []
+
 # -----------------------------------------------------------
 # 4) HELPER FUNCTIONS
 # -----------------------------------------------------------
 def cell_type(cell):
-    """Return the type of the cell (if tuple, return its first element)."""
+    """Return the type of the cell (EGG, ENEMY, etc.) or the raw int if not a tuple."""
     if isinstance(cell, tuple):
         return cell[0]
     return cell
 
 def tint_surface(surface, tint_color):
-    """
-    Returns a copy of 'surface' tinted with 'tint_color'.
-    Assumes the original surface is white (or monochrome).
-    """
     tinted = surface.copy()
     tinted.fill(tint_color, special_flags=pygame.BLEND_RGBA_MULT)
     return tinted
 
 def get_egg_color(cell):
-    """
-    Return the color of the egg based on how far along it is in hatching.
-    cell is (EGG, total_hatch_time_ms, creation_tick).
-    """
+    """Compute egg color as it incubates."""
     now = pygame.time.get_ticks()
     egg_total_time = cell[1]
     egg_start = cell[2]
     elapsed = now - egg_start
     if elapsed < 0:
         elapsed = 0
-
-    progress = elapsed / egg_total_time  # fraction from 0.0 to 1.0 (or more)
-
+    progress = elapsed / egg_total_time
     if progress < 0.75:
-        # 0–75% => #fae901
         return EGG_COLOR_0
     elif progress < 0.90:
-        # 75–90% => #fa8201
         return EGG_COLOR_1
     else:
-        # >90% => flashing #fa0101 and #ffffff
         flash_period = 250
         flashes = (now // flash_period) % 2
-        if flashes == 0:
-            return EGG_COLOR_FLASH1
-        else:
-            return EGG_COLOR_FLASH2
+        return EGG_COLOR_FLASH1 if flashes == 0 else EGG_COLOR_FLASH2
 
 def get_cell_color(cell):
-    """Return the tint color for a cell based on its type."""
+    """Decide what color tint to apply for each cell type."""
     t = cell_type(cell)
     if t == PLAYER:
         return PLAYER_COLOR
@@ -128,11 +117,10 @@ def get_cell_color(cell):
         return BLOCK_COLOR
     elif t == EGG:
         return get_egg_color(cell)
-    else:
-        return (0, 0, 0)
+    return (0, 0, 0)
 
 # -----------------------------------------------------------
-# 5a) HIGH SCORE HANDLING (XOR-based "encryption")
+# 5a) HIGH SCORE HANDLING
 # -----------------------------------------------------------
 SCORE_FILE = "highscores.dat"
 
@@ -143,7 +131,6 @@ def decrypt_xor(data: bytes, key: int = 0xAA) -> bytes:
     return encrypt_xor(data, key)
 
 def load_highscores() -> list:
-    """Load high scores from SCORE_FILE. Each line: date|level|score|name."""
     if not os.path.exists(SCORE_FILE):
         return []
     try:
@@ -163,7 +150,6 @@ def load_highscores() -> list:
         return []
 
 def save_highscores(scores: list):
-    """Save the top 20 high scores to SCORE_FILE."""
     scores = sorted(scores, key=lambda s: s[0], reverse=True)[:20]
     lines = [f"{dt}|{lvl}|{scr}|{name}" for (scr, dt, lvl, name) in scores]
     data = "\n".join(lines)
@@ -199,31 +185,24 @@ def ask_player_name() -> str:
         clock.tick(15)
 
 def show_highscores_screen(scores, screen):
-    """
-    Display the top 20 high scores as (name, date, level, score).
-    Wait for a key press before returning.
-    """
+    """Display top 20 high scores. Wait for a key press before returning."""
     scores = sorted(scores, key=lambda s: s[0], reverse=True)[:20]
     screen.fill((0, 0, 0))
 
     title = "=== TOP 20 HIGH SCORES ==="
     total_width = GRID_WIDTH * (CHAR_WIDTH * SCALE_X * 2)
     y = 50
-
-    # Centered title
     lw = len(title) * CHAR_WIDTH * SCALE_X
     x = (total_width - lw) // 2
     draw_text(screen, title, x, y, TEXT_COLOR_DEFAULT)
     y += 50
 
-    # Column headers
     headers = f"{'NAME':<15} {'DATE':<19} {'LVL':<4} {'SCORE':>6}"
     lw = len(headers) * CHAR_WIDTH * SCALE_X
     x = (total_width - lw) // 2
     draw_text(screen, headers, x, y, TEXT_COLOR_DEFAULT)
     y += 30
 
-    # Score lines
     for (scr, dt_str, lvl, name_str) in scores:
         line = f"{name_str:<15} {dt_str:<19} {lvl:<4} {scr:>6}"
         lw = len(line) * CHAR_WIDTH * SCALE_X
@@ -232,7 +211,6 @@ def show_highscores_screen(scores, screen):
         y += 25
 
     pygame.display.flip()
-
     clock = pygame.time.Clock()
     waiting = True
     while waiting:
@@ -245,10 +223,6 @@ def show_highscores_screen(scores, screen):
         clock.tick(15)
 
 def maybe_record_highscore(total_score: int, level: int, screen):
-    """
-    If total_score qualifies for the top 20, ask for name and record the score.
-    Then display the top 20 high scores.
-    """
     scores = load_highscores()
     if len(scores) < 20 or total_score > scores[-1][0]:
         name = ask_player_name()
@@ -261,7 +235,7 @@ def maybe_record_highscore(total_score: int, level: int, screen):
 # 5b) PAUSE AND QUIT CONFIRMATION
 # -----------------------------------------------------------
 def pause_game(screen):
-    """Pause the game and display a pause message until resumed."""
+    """Pause the game until the user presses space or quits."""
     paused = True
     clock = pygame.time.Clock()
     while paused:
@@ -290,7 +264,7 @@ def pause_game(screen):
         clock.tick(10)
 
 def quit_confirm(screen) -> bool:
-    """Display a quit confirmation prompt; return True if confirmed, else False."""
+    """Prompt the user to confirm quitting. Return True if yes."""
     clock = pygame.time.Clock()
     while True:
         for event in pygame.event.get():
@@ -315,18 +289,13 @@ def quit_confirm(screen) -> bool:
         clock.tick(10)
 
 # -----------------------------------------------------------
-# 6c) SPRITE-SHEET TEXT RENDERING FUNCTIONS
+# 6c) SPRITE-SHEET TEXT RENDERING
 # -----------------------------------------------------------
 def load_sprite_sheet(filename):
-    """Load the code-page 437 sprite sheet from file."""
     global sprite_sheet
     sprite_sheet = pygame.image.load(filename).convert_alpha()
 
 def draw_char(surface, ch, x, y, color):
-    """
-    Draw a single code-page-437 character 'ch' from the sprite sheet onto 'surface' at (x,y),
-    tinted with the specified 'color'.
-    """
     code = ord(ch)
     if code < 0 or code > 255:
         code = 127
@@ -344,28 +313,24 @@ def draw_char(surface, ch, x, y, color):
     surface.blit(char_surf, (x, y))
 
 def draw_text(surface, text, x, y, color):
-    """
-    Draw a string of text onto 'surface' starting at (x,y) using our sprite-sheet font tinted with 'color'.
-    """
     offset_x = 0
     for ch in text:
         draw_char(surface, ch, x + offset_x, y, color)
         offset_x += CHAR_WIDTH * SCALE_X
 
 # -----------------------------------------------------------
-# 7) ENTITY MAPPINGS (Code Page 437 glyphs)
+# 7) ENTITY MAPPINGS
 # -----------------------------------------------------------
-WALL_CHARS    = "\xDB\xDB"  # ██
-BLOCK0_CHARS  = "\xB0\xB0"  # ░░
-BLOCK1_CHARS  = "\xB1\xB1"  # ▒▒
-BLOCK2_CHARS  = "\xB2\xB2"  # ▓▓
+WALL_CHARS    = "\xDB\xDB"  
+BLOCK0_CHARS  = "\xB0\xB0"  
+BLOCK1_CHARS  = "\xB1\xB1"  
+BLOCK2_CHARS  = "\xB2\xB2"  
 PLAYER_CHARS  = "\x11\x10"  # ◄►
-HUNTER_CHARS  = "\xC3\xB4"  # ├┤
-EGG_CHARS     = "\x09\x09"  # '○○' in CP437 (approx)
+HUNTER_CHARS  = "\xC3\xB4"  
+EGG_CHARS     = "\x09\x09"  
 EMPTY_CHARS   = "  "
 
 def get_cell_string(cell):
-    """Return the 2-character string representing the cell."""
     t = cell_type(cell)
     if t == EMPTY:
         return EMPTY_CHARS
@@ -389,10 +354,10 @@ def get_cell_string(cell):
         return "??"
 
 # -----------------------------------------------------------
-# 8) DRAWING FUNCTIONS: GRID AND STATUS LINE
+# 8) DRAWING THE GRID & STATUS
 # -----------------------------------------------------------
 def draw_grid(screen, grid):
-    """Draw the game grid using sprite-sheet rendered glyphs."""
+    """Refresh the entire game grid."""
     screen.fill((0, 0, 0))
     for y in range(GRID_HEIGHT):
         for x in range(GRID_WIDTH):
@@ -403,9 +368,7 @@ def draw_grid(screen, grid):
             draw_text(screen, cell_str, px, py, color)
 
 def draw_status_line(screen, grid, level_start_time, lives, level, cumulative_score, initial_hunters):
-    """
-    Draw a status line at the bottom.
-    """
+    """Show bottom status bar with enemies, time, lives, and partial score."""
     total_width = GRID_WIDTH * (CHAR_WIDTH * SCALE_X * 2)
     pygame.draw.rect(screen, STATUS_BG_COLOR, (0, GRID_HEIGHT * (CHAR_HEIGHT * SCALE_Y), total_width, STATUS_HEIGHT))
     elapsed = (pygame.time.get_ticks() - level_start_time) // 1000
@@ -413,7 +376,7 @@ def draw_status_line(screen, grid, level_start_time, lives, level, cumulative_sc
     time_str = f"{minutes:02}:{seconds:02}"
     enemy_count = sum(1 for row in grid for cell in row if cell_type(cell) == ENEMY)
     level_score = (initial_hunters - enemy_count) * (2 * level)
-    sep = chr(0xB3)  # │
+    sep = chr(0xB3)
     status_text = (f"Enemies: {enemy_count}  {sep}  Time: {time_str}  {sep}  "
                    f"Lives: {lives}  {sep}  Score: {level_score} ({cumulative_score})")
     text_x = 5
@@ -421,20 +384,29 @@ def draw_status_line(screen, grid, level_start_time, lives, level, cumulative_sc
     draw_text(screen, status_text, text_x, text_y, STATUS_FG_COLOR)
 
 # -----------------------------------------------------------
-# 9) PLAYER SPAWN FUNCTIONS
+# 9) PLAYER SPAWN LOGIC & ANIMATION
 # -----------------------------------------------------------
 def get_player_position(grid):
-    for y in range(GRID_HEIGHT):
-        for x in range(GRID_WIDTH):
-            if cell_type(grid[y][x]) == PLAYER:
-                return (x, y)
+    """
+    Return (x,y) if there's a cell with type=PLAYER, else None.
+    Used in movement, collisions, AI references, etc.
+    """
+    for yy in range(GRID_HEIGHT):
+        for xx in range(GRID_WIDTH):
+            if cell_type(grid[yy][xx]) == PLAYER:
+                return (xx, yy)
     return None
 
-def place_player_best_spot(grid):
+def place_player_best_spot(grid, screen):
     """
-    Place the player in the cell that is maximally far from enemies and,
-    among ties, maximally far from any blocks.
+    Place the player in the cell that is:
+      1) Max distance from any enemy,
+      2) Ties broken by max distance from any block,
+      3) Then by max distance from the outer wall.
+    Then show a short spawn animation in that cell.
     """
+
+    # Gather enemy & block coordinates
     enemies = []
     blocks = []
     for y in range(GRID_HEIGHT):
@@ -442,32 +414,86 @@ def place_player_best_spot(grid):
             t = cell_type(grid[y][x])
             if t == ENEMY:
                 enemies.append((x, y))
-            elif t == UNMOVEABLE_BLOCK or t == MOVEABLE_BLOCK:
+            elif t in (UNMOVEABLE_BLOCK, MOVEABLE_BLOCK):
                 blocks.append((x, y))
+
     best_enemy_dist = -1
     best_block_dist = -1
+    best_edge_dist  = -1
     best_pos = None
-    for y in range(1, GRID_HEIGHT-1):
-        for x in range(1, GRID_WIDTH-1):
-            if cell_type(grid[y][x]) == EMPTY:
-                enemy_dist = min((abs(x-ex)+abs(y-ey)) for ex,ey in enemies) if enemies else 999
-                block_dist = min((abs(x-bx)+abs(y-by)) for bx,by in blocks) if blocks else 999
-                if enemy_dist > best_enemy_dist or (enemy_dist == best_enemy_dist and block_dist > best_block_dist):
+
+    # We only consider the range(1..GRID_WIDTH-2) and (1..GRID_HEIGHT-2)
+    # because the border is typically walls.
+    for yy in range(1, GRID_HEIGHT - 1):
+        for xx in range(1, GRID_WIDTH - 1):
+            if cell_type(grid[yy][xx]) == EMPTY:
+                # Distance to closest enemy
+                if enemies:
+                    enemy_dist = min(abs(xx - ex) + abs(yy - ey) for ex, ey in enemies)
+                else:
+                    enemy_dist = 999
+
+                # Distance to closest block
+                if blocks:
+                    block_dist = min(abs(xx - bx) + abs(yy - by) for bx, by in blocks)
+                else:
+                    block_dist = 999
+
+                # Distance from outer wall
+                dist_edge = min(xx - 1, (GRID_WIDTH - 2) - xx, yy - 1, (GRID_HEIGHT - 2) - yy)
+
+                # Compare triple
+                if (enemy_dist > best_enemy_dist
+                    or (enemy_dist == best_enemy_dist and block_dist > best_block_dist)
+                    or (enemy_dist == best_enemy_dist and block_dist == best_block_dist and dist_edge > best_edge_dist)):
                     best_enemy_dist = enemy_dist
                     best_block_dist = block_dist
-                    best_pos = (x, y)
-    if best_pos:
-        grid[best_pos[1]][best_pos[0]] = PLAYER
+                    best_edge_dist  = dist_edge
+                    best_pos = (xx, yy)
 
-def respawn_player(grid):
-    """Remove any existing player from grid."""
-    for y in range(GRID_HEIGHT):
-        for x in range(GRID_WIDTH):
-            if cell_type(grid[y][x]) == PLAYER:
-                grid[y][x] = EMPTY
+    if best_pos:
+        x, y = best_pos
+        # Show the spawn animation
+        show_spawn_animation(grid, screen, x, y)
+        # Then actually place the player
+        grid[y][x] = PLAYER
+
+def respawn_player(grid, screen):
+    """Remove any existing player, then call place_player_best_spot."""
+    for yy in range(GRID_HEIGHT):
+        for xx in range(GRID_WIDTH):
+            if cell_type(grid[yy][xx]) == PLAYER:
+                grid[yy][xx] = EMPTY
+    place_player_best_spot(grid, screen)
+
+def show_spawn_animation(grid, screen, x, y):
+    """
+    4-step animation in cell (x,y):
+      1) "--" (#ff0000)
+      2) "←→" (#ff9900)
+      3) "«»" (#ffff00)
+      4) "<>" (#ffffff)
+    Each step ~200 ms, then revert (we do not store them in the grid).
+    """
+    steps = [
+        ("--", (0xff, 0x00, 0x00)),
+        ("←→", (0xff, 0x99, 0x00)),
+        ("«»", (0xff, 0xff, 0x00)),
+        ("<>", (0xff, 0xff, 0xff))
+    ]
+    clock = pygame.time.Clock()
+    for glyphs, color in steps:
+        # Draw the current grid
+        draw_grid(screen, grid)
+        # Overlay our temporary glyph at (x, y)
+        px = x * (CHAR_WIDTH * SCALE_X * 2)
+        py = y * (CHAR_HEIGHT * SCALE_Y)
+        draw_text(screen, glyphs, px, py, color)
+        pygame.display.flip()
+        clock.tick(5)  # ~ 200 ms per step
 
 # -----------------------------------------------------------
-# 10) GAME OVER AND COLLISION HANDLING
+# 10) GAME OVER & COLLISION
 # -----------------------------------------------------------
 def game_over_screen(screen):
     screen.fill((0, 0, 0))
@@ -483,11 +509,7 @@ def game_over_screen(screen):
     pygame.time.wait(3000)
 
 def handle_collision(grid, screen):
-    """
-    Called when the player attempts to move onto an enemy or egg.
-    Decrement life. If lives <= 0, record highscore, game over, exit.
-    Otherwise respawn the player.
-    """
+    """When the player steps onto an enemy or egg."""
     global lives, current_score, current_level
     sounds['collision'].play()
     lives -= 1
@@ -497,11 +519,10 @@ def handle_collision(grid, screen):
         pygame.quit()
         sys.exit()
     else:
-        respawn_player(grid)
-        place_player_best_spot(grid)
+        respawn_player(grid, screen)
 
 # -----------------------------------------------------------
-# 11) PLAYER MOVEMENT FUNCTIONS
+# 11) PLAYER MOVEMENT
 # -----------------------------------------------------------
 def move_player_direction(grid, direction, stats, screen):
     player_pos = get_player_position(grid)
@@ -511,39 +532,31 @@ def move_player_direction(grid, direction, stats, screen):
     dx, dy = direction
     tx, ty = px + dx, py + dy
     t = cell_type(grid[ty][tx])
-    
+
     if t == EMPTY:
-        # Normal move
         grid[py][px] = EMPTY
         grid[ty][tx] = PLAYER
     elif t == MOVEABLE_BLOCK:
         grid = push_blocks(grid, (px, py), direction, stats, screen)
-    elif t == ENEMY or t == EGG:
-        # Collide => lose a life
+    elif t in (ENEMY, EGG):
         handle_collision(grid, screen)
-    # If it's UNMOVEABLE_BLOCK, do nothing (blocked).
-    
     return grid
 
 def push_blocks(grid, start_pos, direction, stats, screen):
     """
-    Attempt to push a chain of moveable blocks. If the final cell is an EGG or ENEMY
-    and pinned, squish it. Eggs are worth 1*level points; enemies 2*level each (handled at level-end).
+    Attempt to push moveable blocks.
+    If final cell is ENEMY or EGG pinned, squish it.
     """
     x, y = start_pos
     dx, dy = direction
     chain = []
     cx, cy = x + dx, y + dy
-    
-    # Gather all consecutive moveable blocks in front of the player
     while cell_type(grid[cy][cx]) == MOVEABLE_BLOCK:
         chain.append((cx, cy))
         cx += dx
         cy += dy
 
     t = cell_type(grid[cy][cx])
-
-    # If final spot is empty, push chain forward
     if t == EMPTY:
         for bx, by in reversed(chain):
             grid[by+dy][bx+dx] = grid[by][bx]
@@ -551,11 +564,9 @@ def push_blocks(grid, start_pos, direction, stats, screen):
         grid[y+dy][x+dx] = PLAYER
         grid[y][x] = EMPTY
 
-    # If final spot is ENEMY, squish it if next cell is blocked
     elif t == ENEMY:
         nx, ny = cx + dx, cy + dy
         if cell_type(grid[ny][nx]) in [MOVEABLE_BLOCK, UNMOVEABLE_BLOCK]:
-            # Squish the enemy
             for bx, by in reversed(chain):
                 grid[by+dy][bx+dx] = grid[by][bx]
                 grid[by][bx] = EMPTY
@@ -564,11 +575,9 @@ def push_blocks(grid, start_pos, direction, stats, screen):
             stats['enemies_eliminated'] += 1
             sounds['squish'].play()
 
-    # If final spot is EGG, do the same "pin" check and destroy the egg
     elif t == EGG:
         nx, ny = cx + dx, cy + dy
         if cell_type(grid[ny][nx]) in [MOVEABLE_BLOCK, UNMOVEABLE_BLOCK]:
-            # Destroy the egg
             for bx, by in reversed(chain):
                 grid[by+dy][bx+dx] = grid[by][bx]
                 grid[by][bx] = EMPTY
@@ -580,11 +589,11 @@ def push_blocks(grid, start_pos, direction, stats, screen):
     return grid
 
 # -----------------------------------------------------------
-# 12) ENEMY AI: A* PATHFINDING AND RANDOM MOVEMENT
+# 12) ENEMY AI (A* + random fallback)
 # -----------------------------------------------------------
 def a_star_path(grid, start, goal):
     """
-    8-direction A* path. We cannot pass through EGG or ENEMY or blocks.
+    8-direction A* pathfinding. EGG/ENEMY/blocks block the path.
     """
     def heuristic(a, b):
         return max(abs(a[0]-b[0]), abs(a[1]-b[1]))
@@ -612,8 +621,6 @@ def a_star_path(grid, start, goal):
                 ny = current[1] + ddy
                 if not (0 <= nx < GRID_WIDTH and 0 <= ny < GRID_HEIGHT):
                     continue
-                # We can only move through EMPTY or directly onto the player's cell (goal).
-                # EGG acts like a blocking enemy, so do not pass.
                 t = cell_type(grid[ny][nx])
                 if (nx, ny) != goal and t != EMPTY:
                     continue
@@ -628,7 +635,7 @@ def a_star_path(grid, start, goal):
 
 def update_enemies(grid, move_accuracy, screen):
     """
-    Move each enemy via A* or random fallback, but cannot step on EGG (blocks movement).
+    Move each enemy. They call get_player_position to chase or do random steps.
     """
     player_pos = get_player_position(grid)
     if not player_pos:
@@ -648,7 +655,6 @@ def update_enemies(grid, move_accuracy, screen):
         path = a_star_path(grid, (ex, ey), player_pos)
         moved = False
         
-        # Attempt to follow path if found
         if len(path) >= 2 and random.random() < (move_accuracy / 100.0):
             nx, ny = path[1]
             t = cell_type(grid[ny][nx])
@@ -661,7 +667,6 @@ def update_enemies(grid, move_accuracy, screen):
                 grid[ey][ex] = EMPTY
                 moved = True
         
-        # Random fallback (cannot step onto EGG)
         if not moved:
             mv = random.choice([
                 (-1, -1), (0, -1), (1, -1),
@@ -681,13 +686,8 @@ def update_enemies(grid, move_accuracy, screen):
                     grid[ey][ex] = EMPTY
     return grid
 
-# -----------------------------------------------------------
-# 12b) EGG UPDATE: handle incubation
-# -----------------------------------------------------------
 def update_eggs(grid):
-    """
-    Check every EGG. If the egg's incubation time is done, turn it into ENEMY.
-    """
+    """Check if any eggs have passed their incubation time. If so, hatch them."""
     now = pygame.time.get_ticks()
     for y in range(GRID_HEIGHT):
         for x in range(GRID_WIDTH):
@@ -696,59 +696,114 @@ def update_eggs(grid):
                 egg_total_time = c[1]
                 egg_start = c[2]
                 if now - egg_start >= egg_total_time:
-                    # Hatch into ENEMY
                     grid[y][x] = ENEMY
     return grid
 
 # -----------------------------------------------------------
-# 13) LEVEL DIFFICULTY AND GENERATION
+# 13) LOADING & EXTRAPOLATION FOR LEVELS
 # -----------------------------------------------------------
-def get_level_params(level):
-    """
-    Return (num_hunters, move_speed, move_accuracy, num_eggs, avg_egg_hatch_ms)
-    """
-    # Previous logic
-    if level == 1:
-        hunters, move_speed, move_accuracy = 3, 1000, 50
-    elif level == 2:
-        hunters, move_speed, move_accuracy = 4, 1000, 50
-    elif level == 3:
-        hunters, move_speed, move_accuracy = 5, 1000, 50
-    elif level == 4:
-        hunters, move_speed, move_accuracy = 6, 1000, 50
-    elif level == 5:
-        hunters, move_speed, move_accuracy = 6, 900, 50
-    elif level == 6:
-        hunters, move_speed, move_accuracy = 6, 800, 50
-    elif level == 7:
-        hunters, move_speed, move_accuracy = 6, 700, 50
-    elif level == 8:
-        hunters, move_speed, move_accuracy = 6, 700, 55
-    elif level == 9:
-        hunters, move_speed, move_accuracy = 6, 700, 60
-    elif level == 10:
-        hunters, move_speed, move_accuracy = 6, 700, 65
-    elif level == 11:
-        hunters, move_speed, move_accuracy = 7, 700, 70
+def load_levels_json(filename="levels.json"):
+    """Load the external levels.json into levels_data."""
+    global levels_data
+    if not os.path.exists(filename):
+        print(f"ERROR: Cannot find {filename}. Using empty levels_data.")
+        levels_data = []
+        return
+    with open(filename, "r", encoding="utf-8") as f:
+        levels_data = json.load(f)
+
+def get_level_def(level):
+    """Return a dictionary with hunter_count, speed_ms, accuracy, egg_count, egg_incubation_ms."""
+    if not levels_data:
+        # fallback if no file or empty
+        return {
+            "hunter_count": 3,
+            "hunter_speed_ms": 1000,
+            "hunter_accuracy": 50,
+            "egg_count": 0,
+            "egg_incubation_ms": 0
+        }
+    max_defined = levels_data[-1]["level"]
+    if level <= max_defined:
+        # Find that entry in the JSON
+        for entry in levels_data:
+            if entry["level"] == level:
+                return parse_level_entry(entry)
+        # fallback if not found
+        return parse_level_entry(levels_data[0])
+    # If we exceed the final level in JSON, extrapolate
+    if len(levels_data) >= 2:
+        second_last = levels_data[-2]
+        last = levels_data[-1]
+        return extrapolate_level(level, second_last, last)
     else:
-        hunters = 7 + ((level - 11) // 4)
-        move_speed = 700
-        move_accuracy = 70
+        # If only one level in the file, can't do differences
+        return parse_level_entry(levels_data[-1])
 
-    # Eggs: from level 3 onward, 2 eggs, average 60s
-    if level >= 3:
-        num_eggs = 2
-        avg_egg_hatch_ms = 60000
-    else:
-        num_eggs = 0
-        avg_egg_hatch_ms = 0
+def parse_level_entry(entry):
+    enemies = entry.get("enemies", {})
+    hunter = enemies.get("hunter", {})
+    egg = enemies.get("egg", {})
 
-    return (hunters, move_speed, move_accuracy, num_eggs, avg_egg_hatch_ms)
+    h_count = hunter.get("count", 0)
+    h_speed_ms = hunter.get("speed_ms", 1000)
+    h_accuracy = hunter.get("accuracy", 50)
 
+    e_count = egg.get("count", 0)
+    e_incub_s = egg.get("incubation_s", 0)
+
+    return {
+        "hunter_count": h_count,
+        "hunter_speed_ms": h_speed_ms,
+        "hunter_accuracy": h_accuracy,
+        "egg_count": e_count,
+        "egg_incubation_ms": e_incub_s * 1000
+    }
+
+def extrapolate_level(level, second_last, last):
+    """Simple difference-based extrapolation from the final two entries."""
+    L2 = parse_level_entry(second_last)
+    L1 = parse_level_entry(last)
+
+    def clamp_speed(sp):
+        return max(sp, 100)
+
+    def clamp_accuracy(a):
+        return min(a, 100)
+
+    diff_h_count = L1["hunter_count"] - L2["hunter_count"]
+    diff_h_speed = L1["hunter_speed_ms"] - L2["hunter_speed_ms"]
+    diff_h_acc   = L1["hunter_accuracy"] - L2["hunter_accuracy"]
+    diff_egg_count = L1["egg_count"] - L2["egg_count"]
+    diff_egg_inc   = L1["egg_incubation_ms"] - L2["egg_incubation_ms"]
+
+    offset = level - last["level"]
+
+    new_h_count = L1["hunter_count"] + diff_h_count * offset
+    new_h_speed = L1["hunter_speed_ms"] + diff_h_speed * offset
+    new_h_acc   = L1["hunter_accuracy"] + diff_h_acc * offset
+    new_egg_count = L1["egg_count"] + diff_egg_count * offset
+    new_egg_inc   = L1["egg_incubation_ms"] + diff_egg_inc * offset
+
+    new_h_count = max(new_h_count, 0)
+    new_h_speed = clamp_speed(new_h_speed)
+    new_h_acc   = clamp_accuracy(new_h_acc)
+    new_egg_count = max(new_egg_count, 0)
+    new_egg_inc   = max(new_egg_inc, 1000)
+
+    return {
+        "hunter_count": new_h_count,
+        "hunter_speed_ms": new_h_speed,
+        "hunter_accuracy": new_h_acc,
+        "egg_count": new_egg_count,
+        "egg_incubation_ms": new_egg_inc
+    }
+
+# -----------------------------------------------------------
+# 14) LEVEL GENERATION & MAIN LOOP
+# -----------------------------------------------------------
 def generate_level(num_enemies, num_eggs, avg_egg_hatch_ms):
-    """
-    Create the grid, place enemies, place eggs with random hatch times ±10%.
-    """
+    """Generate the grid with walls, blocks, enemies, eggs."""
     grid = [[EMPTY for _ in range(GRID_WIDTH)] for _ in range(GRID_HEIGHT)]
     # Border walls
     for x in range(GRID_WIDTH):
@@ -768,7 +823,7 @@ def generate_level(num_enemies, num_eggs, avg_egg_hatch_ms):
                 block_index = random.choice([0, 1, 2])
                 grid[y][x] = (MOVEABLE_BLOCK, block_index)
 
-    # Place enemies
+    # Enemies
     enemy_positions = []
     while len(enemy_positions) < num_enemies:
         rx = random.randint(1, GRID_WIDTH-2)
@@ -777,35 +832,42 @@ def generate_level(num_enemies, num_eggs, avg_egg_hatch_ms):
             grid[ry][rx] = ENEMY
             enemy_positions.append((rx, ry))
 
-    # Place eggs
+    # Eggs
     egg_positions = []
     now = pygame.time.get_ticks()
     while len(egg_positions) < num_eggs:
         rx = random.randint(1, GRID_WIDTH-2)
         ry = random.randint(1, GRID_HEIGHT-2)
         if cell_type(grid[ry][rx]) == EMPTY:
-            factor = 0.9 + 0.2 * random.random()  # 0.9..1.1
+            factor = 0.9 + 0.2 * random.random()
             hatch_time = int(avg_egg_hatch_ms * factor)
             grid[ry][rx] = (EGG, hatch_time, now)
             egg_positions.append((rx, ry))
 
     return grid
 
-# -----------------------------------------------------------
-# 14) LEVEL PLAY FUNCTION AND MAIN LOOP
-# -----------------------------------------------------------
 def play_level(level, screen, clock, cumulative_score):
     """
-    Returns (moves, enemies_eliminated, time_taken, level_score) for this level.
+    1) Retrieve definitions from JSON or extrapolation
+    2) Generate grid
+    3) Place player with 'place_player_best_spot'
+    4) Run the game loop until no enemies & eggs remain
+    5) Return stats
     """
     global current_score, current_level
-    hunters, move_speed, move_accuracy, egg_count, avg_egg_time = get_level_params(level)
+    info = get_level_def(level)
+    hunters = info["hunter_count"]
+    move_speed = info["hunter_speed_ms"]
+    move_accuracy = info["hunter_accuracy"]
+    egg_count = info["egg_count"]
+    egg_time_ms = info["egg_incubation_ms"]
+
     current_level = level
     current_score = cumulative_score
-    grid = generate_level(hunters, egg_count, avg_egg_time)
-    place_player_best_spot(grid)
 
-    # Track stats
+    grid = generate_level(hunters, egg_count, egg_time_ms)
+    place_player_best_spot(grid, screen)
+
     stats = {
         'moves': 0,
         'enemies_eliminated': 0,
@@ -845,12 +907,10 @@ def play_level(level, screen, clock, cumulative_score):
                         stats['moves'] += 1
 
         current_time = pygame.time.get_ticks()
-        # Enemy AI update
         if current_time - last_enemy_update >= enemy_update_interval:
             grid = update_enemies(grid, move_accuracy, screen)
             last_enemy_update = current_time
 
-        # Egg incubation update
         grid = update_eggs(grid)
 
         draw_grid(screen, grid)
@@ -858,25 +918,21 @@ def play_level(level, screen, clock, cumulative_score):
         pygame.display.flip()
         clock.tick(10)
 
-        # Check if all enemies are gone
+        # Win condition: no enemies & no eggs
         enemy_exists = any(cell_type(c) == ENEMY for row in grid for c in row)
-        # Also check if any eggs remain
         egg_exists = any(cell_type(c) == EGG for row in grid for c in row)
-
-        # If no enemies and no eggs, level is complete
         if not enemy_exists and not egg_exists:
             break
 
+    # Level done
     level_end_time = pygame.time.get_ticks()
     time_taken = (level_end_time - level_start_time) // 1000
-
-    # Now compute this level's score
-    # Enemies: 2 * level each, Eggs: 1 * level each
+    # Score formula: 2 * level * (enemies) + 1 * level * (eggs)
     level_score = stats['enemies_eliminated'] * (2 * level) + stats['eggs_destroyed'] * (1 * level)
-
     return stats['moves'], stats['enemies_eliminated'], time_taken, level_score
 
 def show_level_complete_screen(screen, level, moves, enemies, time_taken, level_score, cumulative_score):
+    """Display an interstitial at level completion."""
     screen.fill((0, 0, 0))
     lines = [
         f"Level {level} Completed!",
@@ -897,6 +953,7 @@ def show_level_complete_screen(screen, level, moves, enemies, time_taken, level_
         draw_text(screen, line, x, y, TEXT_COLOR_DEFAULT)
         y += line_height
     pygame.display.flip()
+
     waiting = True
     while waiting:
         for event in pygame.event.get():
@@ -918,17 +975,20 @@ def main():
     screen = pygame.display.set_mode((screen_width, screen_height))
     clock = pygame.time.Clock()
 
-    # Load the sprite sheet.
+    # Load sprite sheet & sounds
     load_sprite_sheet("dos_spritesheet.png")
-    # Load sounds.
     sounds['squish'] = pygame.mixer.Sound("squish.wav")
     sounds['collision'] = pygame.mixer.Sound("collision.wav")
+
+    # Load level definitions
+    load_levels_json("levels.json")
 
     cumulative_score = 0
     level = 1
     lives = 3
 
     while True:
+        # Play the level
         moves, enemies, time_taken, level_score = play_level(level, screen, clock, cumulative_score)
         cumulative_score += level_score
         show_level_complete_screen(screen, level, moves, enemies, time_taken, level_score, cumulative_score)
