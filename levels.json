@@ -1,57 +1,526 @@
-[
-  {
-    "level": "A",
-    "pull_blocks": true,
-    "speed_up": false,
-    "explosive_blocks": false,
-    "winning_level": 2,
-    "enemies": {
-      "hunter": {
-        "count": 1,
-        "speed_ms": 1100,
-        "accuracy": 100,
-        "speed_variability": 0,
-        "mutation_ratio": 0
-      }
+[{
+        "level": "A",
+        "pull_blocks": true,
+        "speed_up": false,
+        "explosive_blocks": false,
+        "winning_level": 2,
+        "enemies": {
+            "hunter": {
+                "count": 1,
+                "speed_ms": 1100,
+                "accuracy": 100,
+                "speed_variability": 0,
+                "mutation_ratio": 0
+            }
+        }
+    },
+    {
+        "level": "B",
+        "pull_blocks": true,
+        "speed_up": false,
+        "explosive_blocks": false,
+        "winning_level": 2,
+        "enemies": {
+            "hunter": {
+                "count": 2,
+                "speed_ms": 1100,
+                "accuracy": 100,
+                "speed_variability": 0,
+                "mutation_ratio": 0
+            }
+        }
+    },
+    {
+        "level": "C",
+        "pull_blocks": true,
+        "speed_up": false,
+        "explosive_blocks": false,
+        "winning_level": 2,
+        "enemies": {
+            "hunter": {
+                "count": 3,
+                "speed_ms": 1100,
+                "accuracy": 100,
+                "speed_variability": 0,
+                "mutation_ratio": 0
+            }
+        }
+    },
+    {
+        "level": "D",
+        "pull_blocks": true,
+        "speed_up": false,
+        "explosive_blocks": false,
+        "winning_level": 3,
+        "enemies": {
+            "hunter": {
+                "count": 3,
+                "speed_ms": 1100,
+                "accuracy": 100,
+                "speed_variability": 0,
+                "mutation_ratio": 0
+            }
+        }
+    },
+    {
+        "level": "E",
+        "pull_blocks": true,
+        "speed_up": false,
+        "explosive_blocks": false,
+        "winning_level": 3,
+        "enemies": {
+            "hunter": {
+                "count": 4,
+                "speed_ms": 1100,
+                "accuracy": 100,
+                "speed_variability": 0,
+                "mutation_ratio": 0
+            }
+        }
+    },
+    {
+        "level": "F",
+        "pull_blocks": true,
+        "speed_up": true,
+        "explosive_blocks": false,
+        "winning_level": 3,
+        "enemies": {
+            "hunter": {
+                "count": 4,
+                "speed_ms": 1100,
+                "accuracy": 100,
+                "speed_variability": 0,
+                "mutation_ratio": 0
+            }
+        }
+    },
+    {
+        "level": "G",
+        "pull_blocks": true,
+        "speed_up": true,
+        "explosive_blocks": false,
+        "winning_level": 3,
+        "enemies": {
+            "hunter": {
+                "count": 4,
+                "speed_ms": 1100,
+                "accuracy": 100,
+                "speed_variability": 0,
+                "mutation_ratio": 0
+            },
+            "egg": {
+                "count": 1,
+                "incubation_s": 60,
+                "hatches_into": "pusher"
+            }
+        }
+    },
+    {
+        "level": "H",
+        "pull_blocks": true,
+        "speed_up": true,
+        "explosive_blocks": false,
+        "winning_level": 6,
+        "enemies": {
+            "hunter": {
+                "count": 4,
+                "speed_ms": 1100,
+                "accuracy": 100,
+                "speed_variability": 0,
+                "mutation_ratio": 0.25,
+                "mutates_into": "sentinel"
+            }
+        }
+    },
+    {
+        "level": "I",
+        "pull_blocks": true,
+        "speed_up": true,
+        "explosive_blocks": false,
+        "winning_level": 6,
+        "enemies": {
+            "hunter": {
+                "count": 4,
+                "speed_ms": 1100,
+                "accuracy": 100,
+                "speed_variability": 0,
+                "mutation_ratio": 0.25,
+                "mutates_into": "sentinel"
+            },
+            "egg": {
+                "count": 1,
+                "incubation_s": 60,
+                "hatches_into": "pusher"
+            }
+        }
+    },
+    {
+        "level": "J",
+        "pull_blocks": false,
+        "speed_up": true,
+        "explosive_blocks": false,
+        "winning_level": 6,
+        "enemies": {
+            "hunter": {
+                "count": 4,
+                "speed_ms": 1100,
+                "accuracy": 100,
+                "speed_variability": 0,
+                "mutation_ratio": 0.25,
+                "mutates_into": "sentinel"
+            },
+            "egg": {
+                "count": 2,
+                "incubation_s": 60,
+                "hatches_into": "pusher"
+            }
+        }
+    },
+    {
+        "level": "K",
+        "pull_blocks": false,
+        "speed_up": true,
+        "explosive_blocks": false,
+        "winning_level": 6,
+        "enemies": {
+            "hunter": {
+                "count": 4,
+                "speed_ms": 1100,
+                "accuracy": 100,
+                "speed_variability": 0,
+                "mutation_ratio": 0.25,
+                "mutates_into": "sentinel"
+            },
+            "egg": {
+                "count": 3,
+                "incubation_s": 60,
+                "hatches_into": "pusher"
+            }
+        }
+    },
+    {
+        "level": "L",
+        "pull_blocks": true,
+        "speed_up": true,
+        "explosive_blocks": true,
+        "winning_level": 6,
+        "enemies": {
+            "hunter": {
+                "count": 5,
+                "speed_ms": 1100,
+                "accuracy": 100,
+                "speed_variability": 0,
+                "mutation_ratio": 0.25,
+                "mutates_into": "sentinel"
+            },
+            "egg": {
+                "count": 10,
+                "incubation_s": 70,
+                "hatches_into": "pusher"
+            }
+        }
+    },
+    {
+        "level": "M",
+        "pull_blocks": true,
+        "speed_up": true,
+        "explosive_blocks": true,
+        "winning_level": 6,
+        "enemies": {
+            "hunter": {
+                "count": 10,
+                "speed_ms": 1100,
+                "accuracy": 100,
+                "speed_variability": 0,
+                "mutation_ratio": 0.25,
+                "mutates_into": "sentinel"
+            },
+            "egg": {
+                "count": 1,
+                "incubation_s": 0,
+                "hatches_into": "pusher"
+            }
+        }
+    },
+    {
+        "level": "N",
+        "pull_blocks": true,
+        "speed_up": true,
+        "explosive_blocks": true,
+        "winning_level": 6,
+        "enemies": {
+            "hunter": {
+                "count": 1,
+                "speed_ms": 1100,
+                "accuracy": 100,
+                "speed_variability": 0,
+                "mutation_ratio": 0.25,
+                "mutates_into": "sentinel"
+            },
+            "egg": {
+                "count": 15,
+                "incubation_s": 7,
+                "hatches_into": "pusher"
+            }
+        }
+    },
+    {
+        "level": "O",
+        "pull_blocks": true,
+        "speed_up": true,
+        "explosive_blocks": true,
+        "winning_level": 6,
+        "enemies": {
+            "hunter": {
+                "count": 2,
+                "speed_ms": 1100,
+                "accuracy": 100,
+                "speed_variability": 0,
+                "mutation_ratio": 1,
+                "mutates_into": "sentinel"
+            }
+        }
+    },
+    {
+        "level": "P",
+        "pull_blocks": false,
+        "speed_up": true,
+        "explosive_blocks": true,
+        "winning_level": 9,
+        "enemies": {
+            "hunter": {
+                "count": 4,
+                "speed_ms": 1100,
+                "accuracy": 100,
+                "speed_variability": 0,
+                "mutation_ratio": 0.25,
+                "mutates_into": "sentinel"
+            },
+            "egg": {
+                "count": 5,
+                "incubation_s": 50,
+                "hatches_into": "pusher"
+            }
+        }
+    },
+    {
+        "level": "Q",
+        "pull_blocks": false,
+        "speed_up": true,
+        "explosive_blocks": true,
+        "winning_level": 9,
+        "enemies": {
+            "hunter": {
+                "count": 4,
+                "speed_ms": 1100,
+                "accuracy": 100,
+                "speed_variability": 0,
+                "mutation_ratio": 0.25,
+                "mutates_into": "sentinel"
+            },
+            "egg": {
+                "count": 6,
+                "incubation_s": 50,
+                "hatches_into": "pusher"
+            }
+        }
+    },
+    {
+        "level": "R",
+        "pull_blocks": false,
+        "speed_up": true,
+        "explosive_blocks": true,
+        "winning_level": 9,
+        "enemies": {
+            "hunter": {
+                "count": 4,
+                "speed_ms": 1100,
+                "accuracy": 100,
+                "speed_variability": 0,
+                "mutation_ratio": 0.25,
+                "mutates_into": "sentinel"
+            },
+            "egg": {
+                "count": 7,
+                "incubation_s": 50,
+                "hatches_into": "pusher"
+            }
+        }
+    },
+    {
+        "level": "S",
+        "pull_blocks": false,
+        "speed_up": true,
+        "explosive_blocks": true,
+        "winning_level": 9,
+        "enemies": {
+            "hunter": {
+                "count": 4,
+                "speed_ms": 1100,
+                "accuracy": 100,
+                "speed_variability": 0,
+                "mutation_ratio": 0.25,
+                "mutates_into": "sentinel"
+            },
+            "egg": {
+                "count": 7,
+                "incubation_s": 50,
+                "hatches_into": "pusher"
+            }
+        }
+    },
+    {
+        "level": "T",
+        "pull_blocks": false,
+        "speed_up": true,
+        "explosive_blocks": true,
+        "winning_level": 15,
+        "enemies": {
+            "hunter": {
+                "count": 4,
+                "speed_ms": 1100,
+                "accuracy": 100,
+                "speed_variability": 0,
+                "mutation_ratio": 0.125,
+                "mutates_into": "sentinel"
+            },
+            "egg": {
+                "count": 8,
+                "incubation_s": 45,
+                "hatches_into": "pusher"
+            }
+        }
+    },
+    {
+        "level": "U",
+        "pull_blocks": false,
+        "speed_up": true,
+        "explosive_blocks": true,
+        "winning_level": 15,
+        "enemies": {
+            "hunter": {
+                "count": 5,
+                "speed_ms": 1100,
+                "accuracy": 100,
+                "speed_variability": 0,
+                "mutation_ratio": 0.125,
+                "mutates_into": "sentinel"
+            },
+            "egg": {
+                "count": 9,
+                "incubation_s": 40,
+                "hatches_into": "pusher"
+            }
+        }
+    },
+    {
+        "level": "V",
+        "pull_blocks": false,
+        "speed_up": true,
+        "explosive_blocks": true,
+        "winning_level": 15,
+        "enemies": {
+            "hunter": {
+                "count": 5,
+                "speed_ms": 1100,
+                "accuracy": 100,
+                "speed_variability": 0,
+                "mutation_ratio": 0.25,
+                "mutates_into": "sentinel"
+            },
+            "egg": {
+                "count": 10,
+                "incubation_s": 35,
+                "hatches_into": "pusher"
+            }
+        }
+    },
+    {
+        "level": "W",
+        "pull_blocks": false,
+        "speed_up": true,
+        "explosive_blocks": true,
+        "winning_level": 15,
+        "enemies": {
+            "hunter": {
+                "count": 6,
+                "speed_ms": 1100,
+                "accuracy": 100,
+                "speed_variability": 0,
+                "mutation_ratio": 0.25,
+                "mutates_into": "sentinel"
+            },
+            "egg": {
+                "count": 10,
+                "incubation_s": 30,
+                "hatches_into": "pusher"
+            }
+        }
+    },
+    {
+        "level": "X",
+        "pull_blocks": false,
+        "speed_up": true,
+        "explosive_blocks": true,
+        "winning_level": 20,
+        "enemies": {
+            "hunter": {
+                "count": 6,
+                "speed_ms": 1100,
+                "accuracy": 100,
+                "speed_variability": 0,
+                "mutation_ratio": 0.25,
+                "mutates_into": "sentinel"
+            },
+            "egg": {
+                "count": 10,
+                "incubation_s": 20,
+                "hatches_into": "pusher"
+            }
+        }
+    },
+    {
+        "level": "Y",
+        "pull_blocks": false,
+        "speed_up": true,
+        "explosive_blocks": true,
+        "winning_level": 20,
+        "enemies": {
+            "hunter": {
+                "count": 6,
+                "speed_ms": 1100,
+                "accuracy": 100,
+                "speed_variability": 0,
+                "mutation_ratio": 0.5,
+                "mutates_into": "sentinel"
+            },
+            "egg": {
+                "count": 10,
+                "incubation_s": 15,
+                "hatches_into": "pusher"
+            }
+        }
+    },
+    {
+        "level": "Z",
+        "pull_blocks": false,
+        "speed_up": true,
+        "explosive_blocks": true,
+        "winning_level": 20,
+        "enemies": {
+            "hunter": {
+                "count": 2,
+                "speed_ms": 1100,
+                "accuracy": 100,
+                "speed_variability": 0,
+                "mutation_ratio": 1,
+                "mutates_into": "sentinel"
+            },
+            "egg": {
+                "count": 10,
+                "incubation_s": 15,
+                "hatches_into": "pusher"
+            }
+        }
     }
-  },
-  {
-    "level": "P",
-    "pull_blocks": false,
-    "speed_up": true,
-    "explosive_blocks": true,
-    "winning_level": 9,
-    "enemies": {
-      "hunter": {
-        "count": 4,
-        "speed_ms": 1100,
-        "accuracy": 65,
-        "speed_variability": 0,
-        "mutation_s": 30,
-        "mutation_ratio": 0.25,
-        "mutates_into": "sentinel"
-      },
-      "egg": {
-        "count": 5,
-        "incubation_s": 50,
-        "hatches_into": "pusher"
-      }
-    }
-  },
-  {
-    "level": "B",
-    "pull_blocks": true,
-    "speed_up": false,
-    "explosive_blocks": false,
-    "winning_level": 2,
-    "enemies": {
-      "hunter": {
-        "count": 2,
-        "speed_ms": 1100,
-        "accuracy": 95,
-        "speed_variability": 0,
-        "mutation_ratio": 0
-      }
-    }
-  }
 ]
