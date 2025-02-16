@@ -2,7 +2,7 @@
 
 A game inspired by **Beast**, which was included in a version of WordPerfect Office or WordPerfect Works _ages_ ago. I played it to death on my old Tandy 1000 EX. I created this with some heavy lifting done by ChatGPT (o3 and o1), mainly to see whether it could be done. It obviously can. 
 
-The original free version of the game is on the [Internet Archive](https://archive.org/details/msdos_Beast_1984). The version I played can be found on abandonware sites, as part of WordPerfect Library 2.0, e.g. on [Winworld](https://winworldpc.com/product/wordperfect-library/20). 
+The original free version of the game is on the [Internet Archive](https://archive.org/details/msdos_Beast_1984). The version I played can be found on abandonware sites as part of WordPerfect Library 2.0, e.g. on [Winworld](https://winworldpc.com/product/wordperfect-library/20). 
 
 ## About This Game
 
