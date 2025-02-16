@@ -526,10 +526,12 @@ def push_blocks_player(grid, start_pos, direction, stats, screen):
     dx, dy = direction
     chain = []
     cx, cy = x + dx, y + dy
+
     while cell_type(grid[cy][cx]) == MOVEABLE_BLOCK:
         chain.append((cx, cy))
         cx += dx
         cy += dy
+
     occupant_t = cell_type(grid[cy][cx])
     if occupant_t == EMPTY:
         for bx, by in reversed(chain):
@@ -537,6 +539,7 @@ def push_blocks_player(grid, start_pos, direction, stats, screen):
             grid[by][bx] = EMPTY
         grid[y+dy][x+dx] = PLAYER
         grid[y][x] = EMPTY
+
     elif occupant_t == ENEMY:
         nx, ny = cx + dx, cy + dy
         if cell_type(grid[ny][nx]) in [MOVEABLE_BLOCK, UNMOVEABLE_BLOCK, EGG]:
@@ -548,6 +551,7 @@ def push_blocks_player(grid, start_pos, direction, stats, screen):
             stats['hunters_killed'] = stats.get('hunters_killed', 0) + 1
             stats["score"] = stats.get("score", 0) + HUNTER_VALUE
             sounds['squish'].play()
+
     elif occupant_t == PUSHER:
         nx, ny = cx + dx, cy + dy
         if cell_type(grid[ny][nx]) in [MOVEABLE_BLOCK, UNMOVEABLE_BLOCK]:
@@ -559,6 +563,7 @@ def push_blocks_player(grid, start_pos, direction, stats, screen):
             stats['pushers_killed'] = stats.get('pushers_killed', 0) + 1
             stats["score"] = stats.get("score", 0) + PUSHER_VALUE
             sounds['squish'].play()
+
     elif occupant_t == SENTINEL:
         nx, ny = cx + dx, cy + dy
         behind_t = cell_type(grid[ny+dy][nx+dx]) if (0 <= nx+dx < GRID_WIDTH and 0 <= ny+dy < GRID_HEIGHT) else None
@@ -568,17 +573,27 @@ def push_blocks_player(grid, start_pos, direction, stats, screen):
                 grid[by][bx] = EMPTY
             grid[y+dy][x+dx] = PLAYER
             grid[y][x] = EMPTY
-            stats['sentinels_killed'] = stats.get('sentinels_killed', 0) + 1
+            stats.setdefault('sentinels_killed', 0)
+            stats['sentinels_killed'] += 1
             stats["score"] = stats.get("score", 0) + SENTINEL_VALUE
             sounds['squish'].play()
+
     elif occupant_t == EGG:
-        # Crush the egg: remove egg, move player in, add egg score.
-        grid[cy][cx] = EMPTY
-        grid[y+dy][x+dx] = PLAYER
-        grid[y][x] = EMPTY
-        stats['eggs_destroyed'] = stats.get('eggs_destroyed', 0) + 1
-        stats["score"] = stats.get("score", 0) + EGG_VALUE
-        sounds['squish'].play()
+        nx, ny = cx + dx, cy + dy
+        # Only destroy (squish) the egg if it's pinned by a block.
+        if cell_type(grid[ny][nx]) in [MOVEABLE_BLOCK, UNMOVEABLE_BLOCK]:
+            for bx, by in reversed(chain):
+                grid[by+dy][bx+dx] = grid[by][bx]
+                grid[by][bx] = EMPTY
+            grid[y+dy][x+dx] = PLAYER
+            grid[y][x] = EMPTY
+            stats['eggs_destroyed'] = stats.get('eggs_destroyed', 0) + 1
+            stats["score"] = stats.get("score", 0) + EGG_VALUE
+            sounds['squish'].play()
+    else:
+        # Do nothing if the occupant is not pushable.
+        return
+
 
 # -----------------------------------------------------------
 # 12) EGG UPDATE => hatch into pushers (unchanged)
