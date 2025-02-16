@@ -1,6 +1,6 @@
 #############################################
 ##                                         ##
-##          S Q U I S H  v3.10.10          ##
+##          S Q U I S H  v3.10.12         ##
 ##                                         ##
 ##      (c) 2025 Michel Vuijlsteke         ##
 ##                                         ##
@@ -75,17 +75,13 @@ sprite_sheet = None
 sounds = {}
 lives = 3
 current_level = 0
-# running_level_score is maintained for the current level (resets per level)
 running_level_score = 0
-# cumulative_time resets for each level
 cumulative_time = 0
-# global_pause_offset is used to subtract paused time from game time.
 global_pause_offset = 0
 
-# levels_data now holds one entry per main level.
 levels_data = []
 
-# Helper to return adjusted game time.
+# Helper: return adjusted game time (only play time, not paused)
 def get_game_time():
     return pygame.time.get_ticks() - global_pause_offset
 
@@ -130,7 +126,7 @@ def get_cell_color(cell):
     elif t == ENEMY:
         return HUNTER_COLOR
     elif t == EGG:
-        return WALL_COLOR  # Eggs rendered like walls.
+        return WALL_COLOR
     elif t == PUSHER:
         return PUSHER_COLOR
     elif t == SENTINEL:
@@ -385,6 +381,8 @@ def draw_grid(screen, grid):
 def draw_status_line(screen, grid, level_start_time, lives, level_name, running_level_score, time_offset):
     container_width = GRID_WIDTH * (CHAR_WIDTH * SCALE_X * 2)
     elapsed = time_offset + (get_game_time() - level_start_time) // 1000
+    # Ensure elapsed is not negative.
+    elapsed = max(0, elapsed)
     minutes, seconds = divmod(elapsed, 60)
     time_str = f"{minutes:02}:{seconds:02}"
     current_enemy_count = sum(1 for row in grid for c in row if cell_type(c) in [ENEMY, PUSHER, SENTINEL])
@@ -574,7 +572,7 @@ def push_blocks_player(grid, start_pos, direction, stats, screen):
             stats["score"] = stats.get("score", 0) + SENTINEL_VALUE
             sounds['squish'].play()
     elif occupant_t == EGG:
-        # Crush the egg
+        # Crush the egg: remove egg, move player in, add egg score.
         grid[cy][cx] = EMPTY
         grid[y+dy][x+dx] = PLAYER
         grid[y][x] = EMPTY
@@ -974,14 +972,12 @@ def show_level_details_screen(screen, clock, level_def):
 # NEW: PLAY A MAIN LEVEL (with sublevels; no sublevel screen)
 # -----------------------------------------------------------
 def play_main_level(level_def, screen, clock, cumulative_score, cumulative_time):
-    # Reset level score and time for this new level.
     running_level_score = 0
     total_moves = 0
     total_enemies = 0
     level_time = 0
     total_sublevels = level_def.get("winning_level", 1)
     for sublevel in range(1, total_sublevels + 1):
-        # For each new sublevel (except the first), add extra enemy bonus points:
         if sublevel > 1:
             if level_def.get("enemies", {}).get("hunter", {}).get("count", 0) > 0:
                 running_level_score += 2 * HUNTER_VALUE
@@ -989,13 +985,13 @@ def play_main_level(level_def, screen, clock, cumulative_score, cumulative_time)
                 running_level_score += 1 * EGG_VALUE
         sub_time_offset = cumulative_time + level_time
         moves, enemies_eliminated, time_taken, sublevel_score, level_name = play_sublevel(level_def, sublevel, screen, clock, running_level_score, sub_time_offset)
-        running_level_score = sublevel_score  # update running score for the level
+        running_level_score = sublevel_score
         total_moves += moves
         total_enemies += enemies_eliminated
         level_time += time_taken
         pygame.mixer.Sound("sound/sublevel.mp3").play()
     pygame.mixer.Sound("sound/level.mp3").play()
-    show_level_complete_screen(screen, level_def.get("level"), total_moves, total_enemies, level_time, running_level_score, running_level_score)
+    show_level_complete_screen(screen, level_def.get("level"), total_moves, total_enemies, level_time, running_level_score)
     cumulative_time += level_time
     return total_moves, total_enemies, level_time, running_level_score, level_def.get("level"), cumulative_time
 
@@ -1070,13 +1066,13 @@ def play_sublevel(level_def, sublevel, screen, clock, initial_sublevel_score, ti
         if not any_enemies and not any_eggs:
             break
     level_end_time = get_game_time()
-    time_taken = (level_end_time - level_start_time) // 1000
+    time_taken = max(0, (level_end_time - level_start_time) // 1000)
     total_sublevels = level_def.get("winning_level", 1)
     bonus = (4 * math.floor(total_sublevels / 3) + 5) + 4 * (sublevel - 1)
     stats["score"] += bonus
     return stats['moves'], (stats['hunters_killed'] + stats['pushers_killed'] + stats['sentinels_killed']), time_taken, stats["score"], f"{level_def.get('level')}{sublevel}"
 
-def show_level_complete_screen(screen, level_letter, moves, enemies_eliminated, time_taken, level_score, cumulative_score):
+def show_level_complete_screen(screen, level_letter, moves, enemies_eliminated, time_taken, level_score):
     screen.fill((0, 0, 0))
     lines = [
         f"Level {level_letter} Completed!",
@@ -1084,8 +1080,7 @@ def show_level_complete_screen(screen, level_letter, moves, enemies_eliminated, 
         f"Total Enemies Eliminated: {enemies_eliminated}",
         f"Total Moves Taken: {moves}",
         f"Total Time: {time_taken} seconds",
-        f"Level Score (including bonus): {level_score}",
-        f"Score for this level: {level_score}",
+        f"Score: {level_score}",
         "Press <space> to return to level selection"
     ]
     total_width = GRID_WIDTH * (CHAR_WIDTH * SCALE_X * 2)
@@ -1189,15 +1184,12 @@ def main():
     sounds['collision'] = pygame.mixer.Sound("sound/collision.mp3")
     load_levels_json("levels.json")
     while True:
-        # Reset level-specific score and time for each new level.
         level_score = 0
         cumulative_time = 0
         selected_level_letter = level_selection_screen(screen, clock)
         level_def = get_main_level_def(selected_level_letter)
         if show_level_details_screen(screen, clock, level_def):
             moves, enemies_eliminated, level_time, level_score, lvl, cumulative_time = play_main_level(level_def, screen, clock, 0, 0)
-            # After level completion, the score for that level is level_score.
-            # The next level will reset the score.
             
 if __name__ == "__main__":
     main()
