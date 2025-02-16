@@ -155,21 +155,109 @@ def load_highscores() -> list:
         scores = []
         for line in lines:
             parts = line.split("|")
-            if len(parts) == 4:
-                dt_str, lvl_str, scr_str, name_str = parts
-                scores.append((int(scr_str), dt_str, int(lvl_str), name_str))
-        scores.sort(key=lambda s: s[0], reverse=True)
+            if len(parts) == 5:
+                dt_str, lvl_str, scr_str, time_str, name_str = parts
+                scores.append({
+                    "date": dt_str,
+                    "level": lvl_str,   # e.g., "B3" meaning level B, sublevel 3
+                    "score": int(scr_str),
+                    "time": int(time_str),
+                    "name": name_str
+                })
+        # Sort descending by score, then descending by time (if tie)
+        scores.sort(key=lambda s: (s["score"], s["time"]), reverse=True)
         return scores
-    except:
+    except Exception as e:
+        print("Error loading high scores:", e)
         return []
 
 def save_highscores(scores: list):
-    scores = sorted(scores, key=lambda s: s[0], reverse=True)[:20]
-    lines = [f"{dt}|{lvl}|{scr}|{name}" for (scr, dt, lvl, name) in scores]
+    # scores: list of dicts with keys "date", "level", "score", "time", "name"
+    scores = sorted(scores, key=lambda s: (s["score"], s["time"]), reverse=True)[:20]
+    lines = []
+    for s in scores:
+        lines.append(f'{s["date"]}|{s["level"]}|{s["score"]}|{s["time"]}|{s["name"]}')
     data = "\n".join(lines)
     encrypted = encrypt_xor(data.encode("utf-8"), 0xAA)
     with open(SCORE_FILE, "wb") as f:
         f.write(encrypted)
+
+def format_time(seconds: int) -> str:
+    minutes = seconds // 60
+    sec = seconds % 60
+    return f"{minutes:02}:{sec:02}"
+
+# Display overall high scores (top 20 overall)
+def show_highscores_overall(screen, scores):
+    screen.fill((0,0,0))
+    header = "    Name                                    Date        Score  Time   Rank"
+    draw_text(screen, header, 10, 10, TEXT_COLOR_DEFAULT)
+    y = 40
+    for idx, s in enumerate(scores, 1):
+        # Compute rank: if the high score's level is finished, display e.g. "B‼", otherwise "B3" etc.
+        # For our purposes, we assume that if the level string ends with a digit, it is not finished.
+        lvl = s["level"]
+        if lvl and lvl[-1].isdigit():
+            rank = lvl
+        else:
+            rank = lvl + "‼"
+        line = f"{idx:2d}. {s['name']:<40} {s['date']:<10}  {s['score']:>3d}  {format_time(s['time'])}  {rank}"
+        draw_text(screen, line, 10, y, TEXT_COLOR_DEFAULT)
+        y += 20
+    pygame.display.flip()
+    wait_for_key()
+
+# Display high scores grouped by main level letter, top 3 per level.
+def show_highscores_by_level(screen, scores):
+    screen.fill((0,0,0))
+    # Group scores by the main level letter (first character of the "level" field)
+    groups = {}
+    for s in scores:
+        key = s["level"][0] if s["level"] else ""
+        groups.setdefault(key, []).append(s)
+    # For each group, sort descending by score and time, then take top 3.
+    y = 10
+    for lvl in sorted(groups.keys()):
+        group = sorted(groups[lvl], key=lambda s: (s["score"], s["time"]), reverse=True)[:3]
+        draw_text(screen, lvl, 10, y, TEXT_COLOR_DEFAULT)
+        y += 20
+        for idx, s in enumerate(group, 1):
+            # For each record, display: ranking, name, date, score, time, rank (same as before)
+            rec_rank = s["level"] if s["level"][-1].isdigit() else s["level"] + "‼"
+            line = f"   {idx}. {s['name']:<20} {s['date']:<10}  {s['score']:>3d}  {format_time(s['time'])}  {rec_rank}"
+            draw_text(screen, line, 30, y, TEXT_COLOR_DEFAULT)
+            y += 20
+        y += 10
+    pygame.display.flip()
+    wait_for_key()
+
+# A helper function to wait for a key press before returning.
+def wait_for_key():
+    waiting = True
+    clock = pygame.time.Clock()
+    while waiting:
+        for event in pygame.event.get():
+            if event.type == KEYDOWN:
+                waiting = False
+        clock.tick(15)
+
+# Toggle between the two high score screens.
+def high_score_screen(screen, clock):
+    scores = load_highscores()
+    view = 0  # 0 = overall, 1 = by level
+    while True:
+        if view == 0:
+            show_highscores_overall(screen, scores)
+        else:
+            show_highscores_by_level(screen, scores)
+        # Wait a short time then check for toggle key (e.g., TAB) or exit key.
+        for event in pygame.event.get():
+            if event.type == KEYDOWN:
+                if event.key == K_TAB:
+                    view = 1 - view  # toggle view
+                elif event.key == K_ESCAPE:
+                    return
+        clock.tick(15)
 
 def ask_player_name() -> str:
     name = ""
