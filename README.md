@@ -1,8 +1,10 @@
 # Squish
 
-A game inspired by **Beast**, which was included in a version of WordPerfect Office or WordPerfect Works _ages_ ago. I played it to death on my old Tandy 1000 EX. I made this with some heavy lifting done by ChatGPT (o3 and o1). 
+A game inspired by **Beast**, which was included in a version of WordPerfect Office or WordPerfect Works _ages_ ago. I played it to death on my old Tandy 1000 EX. I created this with some heavy lifting done by ChatGPT (o3 and o1), mainly to see whether it could be done. It obviously can. 
 
-## About the Game
+The original free version of the game is on the [https://archive.org/details/msdos_Beast_1984](Internet Archive). The version I played can be found on abandonware sites, as part of WordPerfect Library 2.0, e.g. on [https://winworldpc.com/product/wordperfect-library/20](Winworld). 
+
+## About This Game
 
 In **Squish**, you navigate a playing field while avoiding and eliminating different types of enemies by pushing blocks strategically. The game requires both quick reflexes and careful planning.
 
