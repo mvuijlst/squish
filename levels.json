@@ -1,272 +1,57 @@
 [
-    {
-        "level": 1,
-        "enemies": {
-            "hunter": {
-                "count": 4,
-                "speed_ms": 1100,
-                "accuracy": 100,
-                "speed_variability": 0
-            }
-        }
-    },
-    {
-        "level": 2,
-        "enemies": {
-            "hunter": {
-                "count": 5,
-                "speed_ms": 1020,
-                "accuracy": 97,
-                "speed_variability": 0
-            }
-        }
-    },
-    {
-        "level": 3,
-        "enemies": {
-            "hunter": {
-                "count": 6,
-                "speed_ms": 940,
-                "accuracy": 94,
-                "speed_variability": 0
-            },
-            "egg": {
-                "count": 3,
-                "incubation_s": 60,
-                "hatches_into": "pusher"
-            }
-        }
-    },
-    {
-        "level": 4,
-        "enemies": {
-            "hunter": {
-                "count": 7,
-                "speed_ms": 860,
-                "accuracy": 91,
-                "speed_variability": 0
-            },
-            "egg": {
-                "count": 4,
-                "incubation_s": 56,
-                "hatches_into": "pusher"
-            }
-        }
-    },
-    {
-        "level": 5,
-        "enemies": {
-            "hunter": {
-                "count": 8,
-                "speed_ms": 780,
-                "accuracy": 88,
-                "speed_variability": 0
-            },
-            "egg": {
-                "count": 5,
-                "incubation_s": 52,
-                "hatches_into": "pusher"
-            }
-        }
-    },
-    {
-        "level": 6,
-        "enemies": {
-            "hunter": {
-                "count": 9,
-                "speed_ms": 700,
-                "accuracy": 85,
-                "speed_variability": 0
-            },
-            "sentinel": {
-                "count": 1,
-                "speed_ms": 1600
-            },
-            "egg": {
-                "count": 6,
-                "incubation_s": 48,
-                "hatches_into": "pusher"
-            }
-        }
-    },
-    {
-        "level": 7,
-        "enemies": {
-            "hunter": {
-                "count": 10,
-                "speed_ms": 620,
-                "accuracy": 82,
-                "speed_variability": 0
-            },
-            "sentinel": {
-                "count": 2,
-                "speed_ms": 1500
-            },
-            "egg": {
-                "count": 7,
-                "incubation_s": 44,
-                "hatches_into": "pusher"
-            }
-        }
-    },
-    {
-        "level": 8,
-        "enemies": {
-            "hunter": {
-                "count": 10,
-                "speed_ms": 540,
-                "accuracy": 79,
-                "speed_variability": 0
-            },
-            "sentinel": {
-                "count": 3,
-                "speed_ms": 1400
-            },
-            "egg": {
-                "count": 8,
-                "incubation_s": 40,
-                "hatches_into": "pusher"
-            }
-        }
-    },
-    {
-        "level": 9,
-        "enemies": {
-            "hunter": {
-                "count": 10,
-                "speed_ms": 460,
-                "accuracy": 76,
-                "speed_variability": 0
-            },
-            "sentinel": {
-                "count": 4,
-                "speed_ms": 1300
-            },
-            "egg": {
-                "count": 9,
-                "incubation_s": 36,
-                "hatches_into": "pusher"
-            }
-        }
-    },
-    {
-        "level": 10,
-        "enemies": {
-            "hunter": {
-                "count": 10,
-                "speed_ms": 380,
-                "accuracy": 73,
-                "speed_variability": 0
-            },
-            "sentinel": {
-                "count": 5,
-                "speed_ms": 1200
-            },
-            "egg": {
-                "count": 10,
-                "incubation_s": 32,
-                "hatches_into": "pusher"
-            }
-        }
-    },
-    {
-        "level": 11,
-        "enemies": {
-            "hunter": {
-                "count": 10,
-                "speed_ms": 300,
-                "accuracy": 77,
-                "speed_variability": 0
-            },
-            "sentinel": {
-                "count": 6,
-                "speed_ms": 1100
-            },
-            "egg": {
-                "count": 10,
-                "incubation_s": 28,
-                "hatches_into": "pusher"
-            }
-        }
-    },
-    {
-        "level": 12,
-        "enemies": {
-            "hunter": {
-                "count": 10,
-                "speed_ms": 300,
-                "accuracy": 81,
-                "speed_variability": 0
-            },
-            "sentinel": {
-                "count": 6,
-                "speed_ms": 1000
-            },
-            "egg": {
-                "count": 10,
-                "incubation_s": 24,
-                "hatches_into": "pusher"
-            }
-        }
-    },
-    {
-        "level": 13,
-        "enemies": {
-            "hunter": {
-                "count": 10,
-                "speed_ms": 300,
-                "accuracy": 85,
-                "speed_variability": 0
-            },
-            "sentinel": {
-                "count": 6,
-                "speed_ms": 900
-            },
-            "egg": {
-                "count": 10,
-                "incubation_s": 22,
-                "hatches_into": "pusher"
-            }
-        }
-    },
-    {
-        "level": 14,
-        "enemies": {
-            "hunter": {
-                "count": 10,
-                "speed_ms": 300,
-                "accuracy": 89,
-                "speed_variability": 0
-            },
-            "sentinel": {
-                "count": 6,
-                "speed_ms": 900
-            },
-            "egg": {
-                "count": 10,
-                "incubation_s": 20,
-                "hatches_into": "pusher"
-            }
-        }
-    },
-    {
-        "level": 15,
-        "enemies": {
-            "hunter": {
-                "count": 10,
-                "speed_ms": 300,
-                "accuracy": 93,
-                "speed_variability": 0
-            },
-            "sentinel": {
-                "count": 6,
-                "speed_ms": 900
-            },
-            "egg": {
-                "count": 10,
-                "incubation_s": 20,
-                "hatches_into": "pusher"
-            }
-        }
+  {
+    "level": "A",
+    "pull_blocks": true,
+    "speed_up": false,
+    "explosive_blocks": false,
+    "winning_level": 2,
+    "enemies": {
+      "hunter": {
+        "count": 1,
+        "speed_ms": 1100,
+        "accuracy": 100,
+        "speed_variability": 0,
+        "mutation_ratio": 0
+      }
     }
+  },
+  {
+    "level": "P",
+    "pull_blocks": false,
+    "speed_up": true,
+    "explosive_blocks": true,
+    "winning_level": 9,
+    "enemies": {
+      "hunter": {
+        "count": 4,
+        "speed_ms": 1100,
+        "accuracy": 65,
+        "speed_variability": 0,
+        "mutation_s": 30,
+        "mutation_ratio": 0.25,
+        "mutates_into": "sentinel"
+      },
+      "egg": {
+        "count": 5,
+        "incubation_s": 50,
+        "hatches_into": "pusher"
+      }
+    }
+  },
+  {
+    "level": "B",
+    "pull_blocks": true,
+    "speed_up": false,
+    "explosive_blocks": false,
+    "winning_level": 2,
+    "enemies": {
+      "hunter": {
+        "count": 2,
+        "speed_ms": 1100,
+        "accuracy": 95,
+        "speed_variability": 0,
+        "mutation_ratio": 0
+      }
+    }
+  }
 ]
