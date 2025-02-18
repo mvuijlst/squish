@@ -254,7 +254,7 @@ def show_highscores_overall(surface, scores):
         date_display = s["date"][:10]
 
         # If level ends with digit => "B3", else => "B‼"
-        rank_char = chr(0x203C)  # actual "‼"
+        rank_char = "\x13"
         lvl = s["level"]
         if lvl and lvl[-1].isdigit():
             rank = lvl
@@ -268,10 +268,6 @@ def show_highscores_overall(surface, scores):
         leftover = date_col - line_len
         if leftover < 1:
             leftover = 1
-
-        # We'll draw the name portion in normal color, then leftover dots in #666666
-        # Then the rest in normal color.
-        # We'll do this in separate draws so we can color the dots differently.
 
         # Draw name portion:
         x_draw = 10
@@ -320,11 +316,11 @@ def show_highscores_by_level(surface, scores):
         for idx, s in enumerate(group, 1):
             # Truncate name
             name_full = s["name"]
-            if len(name_full) > 32:
-                name_full = name_full[:29] + "..."
+            if len(name_full) > 21:
+                name_full = name_full[:18] + "..."
 
             date_display = s["date"][:10]
-            rank_char = chr(0x203C)
+            rank_char = "\x13"
             if s["level"] and s["level"][-1].isdigit():
                 rec_rank = s["level"]
             else:
@@ -1091,41 +1087,55 @@ def get_main_level_def(level_letter):
 # NEW: LEVEL SELECTION & DETAILS SCREENS (COMPACT)
 # -----------------------------------------------------------
 def level_selection_screen(screen, clock):
-    # Compact start screen with an extra link to view high scores.
+    """
+    Level selection screen.
+    Use arrow keys to change selection, ENTER to confirm, H to view high scores, and ESC to quit.
+    """
+    
+    # Get the available levels from levels_data
     levels = sorted({ entry.get("level") for entry in levels_data })
     if not levels:
         levels = ["A"]
     selected_index = 0
+
     while True:
         screen.fill((0, 0, 0))
-        draw_text(screen, "Select a Level (Enter)    [H] View High Scores", 20, 10, TEXT_COLOR_DEFAULT)
-        y = 40
+        
+        draw_text(screen, "\xDC\xDB\xDB\xDB\xDB\xDB\xDC \xDC\xDB\xDB\xDB\xDB\xDB\xDC \xDB\xDB   \xDB\xDB \xDE\xDB\xDB\xDD \xDC\xDB\xDB\xDB\xDB\xDB\xDC \xDB\xDB   \xDB\xDB", 19*16, 2*32, PLAYER_COLOR)
+        draw_text(screen, "\xDB\xDB\xDC\xDC\xDC\xDC  \xDB\xDB   \xDB\xDB \xDB\xDB   \xDB\xDB  \xDB\xDB  \xDB\xDB\xDC\xDC\xDC\xDC  \xDB\xDB\xDC\xDC\xDC\xDB\xDB", 19*16, 3*32, HIGHLIGHT_COLOR)
+        draw_text(screen, " \xDF\xDF\xDF\xDF\xDB\xDB \xDB\xDB \xDF\xDC\xDB\xDB \xDB\xDB   \xDB\xDB  \xDB\xDB   \xDF\xDF\xDF\xDF\xDB\xDB \xDB\xDB\xDF\xDF\xDF\xDB\xDB", 19*16, 4*32, EGG_COLOR_0)
+        draw_text(screen, "\xDF\xDB\xDB\xDB\xDB\xDB\xDF \xDF\xDB\xDB\xDB\xDB\xDF\xDC \xDF\xDB\xDB\xDB\xDB\xDB\xDF \xDE\xDB\xDB\xDD \xDF\xDB\xDB\xDB\xDB\xDB\xDF \xDB\xDB   \xDB\xDB", 19*16, 5*32, EGG_COLOR_1)
+        
+        level_y = 256  # adjust vertical position as needed
+        x = 128
         for idx, lvl in enumerate(levels):
-            text = f"{lvl}"
-            color = (255, 255, 0) if idx == selected_index else TEXT_COLOR_DEFAULT
-            draw_text(screen, text, 50, y, color)
-            y += CHAR_HEIGHT * SCALE_Y + 5
+            color = HIGHLIGHT_COLOR if idx == selected_index else TEXT_COLOR_DEFAULT
+            draw_text(screen, lvl, x, level_y, color)
+            x += 40  # spacing between level letters
+
+        # Draw prompt instructions
+        prompt = "Arrow keys: select  \xB3  ENTER: start  \xB3  H: high scores  \xB3  ESC: quit"
+        draw_text(screen, prompt, 0, screen.get_height() - 32, TEXT_COLOR_DEFAULT)
         pygame.display.flip()
+
         for event in pygame.event.get():
             if event.type == QUIT:
-                pygame.quit(); sys.exit()
+                pygame.quit()
+                sys.exit()
             elif event.type == KEYDOWN:
-                if event.key == K_h:
+                if event.key == K_ESCAPE:
+                    pygame.quit()
+                    sys.exit()
+                elif event.key == K_h:
                     high_score_screen(screen, clock)
-                elif event.key == K_UP:
+                elif event.key == K_LEFT:
                     selected_index = (selected_index - 1) % len(levels)
-                elif event.key == K_DOWN:
+                elif event.key == K_RIGHT:
                     selected_index = (selected_index + 1) % len(levels)
                 elif event.key == K_RETURN:
                     return levels[selected_index]
-            elif event.type == MOUSEBUTTONDOWN:
-                mouse_y = event.pos[1]
-                option_height = CHAR_HEIGHT * SCALE_Y + 5
-                index_clicked = (mouse_y - 40) // option_height
-                if 0 <= index_clicked < len(levels):
-                    selected_index = index_clicked
-                    return levels[selected_index]
         clock.tick(15)
+
 
 def show_level_details_screen(screen, clock, level_def):
     lvl = level_def.get("level")
