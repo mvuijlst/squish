@@ -1,6 +1,6 @@
 #############################################
 ##                                         ##
-##          S Q U I S H  v3.11.2           ##
+##          S Q U I S H  v3.2.1            ##
 ##                                         ##
 ##      (c) 2025 Michel Vuijlsteke         ##
 ##                                         ##
@@ -25,7 +25,7 @@ EMPTY = 0
 PLAYER = 1
 MOVEABLE_BLOCK = 2
 UNMOVEABLE_BLOCK = 3
-ENEMY = 4        # Hunter
+HUNTER = 4        
 EGG = 5
 PUSHER = 6
 SENTINEL = 7
@@ -51,12 +51,12 @@ SENTINEL_VALUE = 7
 # -----------------------------------------------------------
 # 2) COLOR DEFINITIONS
 # -----------------------------------------------------------
-TEXT_COLOR_DEFAULT = (0xa7, 0xa7, 0xa7)  # #a7a7a7
-HIGHLIGHT_COLOR    = (0xfa, 0xfa, 0xfa)  # #fafafa
+TEXT_COLOR_DEFAULT = (0xa7, 0xa7, 0xa7) 
+HIGHLIGHT_COLOR    = (0xfa, 0xfa, 0xfa) 
 
 PLAYER_COLOR   = (0x59, 0xe1, 0xe3)
 WALL_COLOR     = (0xff, 0xea, 0x16)
-BLOCK_COLOR    = (0x00, 0x55, 0x00)  # #005500
+BLOCK_COLOR    = (0x00, 0x55, 0x00) 
 
 HUNTER_COLOR   = (0xff, 0x16, 0xb0)
 EGG_COLOR_0    = (0xfa, 0xe9, 0x01)
@@ -123,7 +123,7 @@ def get_cell_color(cell):
         return WALL_COLOR
     elif t == MOVEABLE_BLOCK:
         return BLOCK_COLOR
-    elif t == ENEMY:
+    elif t == HUNTER:
         return HUNTER_COLOR
     elif t == EGG:
         return WALL_COLOR
@@ -236,12 +236,10 @@ def show_highscores_overall(surface, scores):
     - Show '‼' as chr(0x203C)
     """
     surface.fill((0, 0, 0))
-    # One extra space before "Date"
     header = "    Name                                     Date      Score  Time   Rank"
     draw_text(surface, header, 10, 10, TEXT_COLOR_DEFAULT) 
     y = 40
     line_spacing = 32
-    # Column where date begins
     date_col = 44
 
     for idx, s in enumerate(scores, 1):
@@ -281,7 +279,6 @@ def show_highscores_overall(surface, scores):
             x_draw += CHAR_WIDTH * SCALE_X
 
         # Now draw date, score, time, rank
-        # We'll put one space before date_display for clarity
         remainder_str = f" {date_display:<10}  {s['score']:>3d}  {format_time(s['time'])}  {rank}"
         draw_text(surface, remainder_str, x_draw, y, TEXT_COLOR_DEFAULT)
 
@@ -293,9 +290,6 @@ def show_highscores_overall(surface, scores):
 def show_highscores_by_level(surface, scores):
     """
     Displays top 3 scores per main level letter.
-    - Truncate names > 32 chars
-    - Use '.' for padding in #666666
-    - '‼' is chr(0x203C)
     """
     surface.fill((0, 0, 0))
     groups = {}
@@ -305,7 +299,6 @@ def show_highscores_by_level(surface, scores):
 
     y = 10
     line_spacing = 25
-    # We'll place the date at column ~ 28
     date_col = 28
 
     for lvl in sorted(groups.keys()):
@@ -525,7 +518,7 @@ def get_cell_string(cell):
             return BLOCK2_CHARS
     elif t == UNMOVEABLE_BLOCK:
         return WALL_CHARS
-    elif t == ENEMY:
+    elif t == HUNTER:
         return HUNTER_CHARS
     elif t == EGG:
         return EGG_CHARS
@@ -555,7 +548,7 @@ def draw_status_line(screen, grid, level_start_time, lives, level_name, running_
     elapsed = max(0, elapsed)
     minutes, seconds = divmod(elapsed, 60)
     time_str = f"{minutes:02}:{seconds:02}"
-    current_enemy_count = sum(1 for row in grid for c in row if cell_type(c) in [ENEMY, PUSHER, SENTINEL, EGG])
+    current_enemy_count = sum(1 for row in grid for c in row if cell_type(c) in [HUNTER, PUSHER, SENTINEL, EGG])
     initial_egg_count = getattr(draw_status_line, "initial_egg_count", 0)
     segments = []
     segments.append(("Enemies: ", TEXT_COLOR_DEFAULT))
@@ -595,7 +588,7 @@ def place_player_best_spot(grid, screen):
     for y in range(GRID_HEIGHT):
         for x in range(GRID_WIDTH):
             t = cell_type(grid[y][x])
-            if t in [ENEMY, PUSHER, SENTINEL]:
+            if t in [HUNTER, PUSHER, SENTINEL]:
                 enemies.append((x, y))
             elif t in (UNMOVEABLE_BLOCK, MOVEABLE_BLOCK, EGG):
                 blocks.append((x, y))
@@ -697,7 +690,7 @@ def move_player_direction(grid, direction, stats, screen):
         grid[ty][tx] = PLAYER
     elif t == MOVEABLE_BLOCK:
         push_blocks_player(grid, (px, py), direction, stats, screen)
-    elif t in (ENEMY, PUSHER, SENTINEL):
+    elif t in (HUNTER, PUSHER, SENTINEL):
         handle_collision(grid, screen)
     return grid
 
@@ -717,7 +710,7 @@ def push_blocks_player(grid, start_pos, direction, stats, screen):
             grid[by][bx] = EMPTY
         grid[y+dy][x+dx] = PLAYER
         grid[y][x] = EMPTY
-    elif occupant_t == ENEMY:
+    elif occupant_t == HUNTER:
         nx, ny = cx + dx, cy + dy
         if cell_type(grid[ny][nx]) in [MOVEABLE_BLOCK, UNMOVEABLE_BLOCK, EGG]:
             for bx, by in reversed(chain):
@@ -809,7 +802,7 @@ def a_star_path_for_enemy(grid, start, goal):
                 continue
             t = cell_type(grid[ny][nx])
             # cannot move onto blocks, pushers, sentinels, eggs, or other enemies
-            if t in (UNMOVEABLE_BLOCK, MOVEABLE_BLOCK, ENEMY, PUSHER, SENTINEL, EGG):
+            if t in (UNMOVEABLE_BLOCK, MOVEABLE_BLOCK, HUNTER, PUSHER, SENTINEL, EGG):
                 continue
             cost = g_score[current] + 1
             if (nx, ny) not in g_score or cost < g_score[(nx, ny)]:
@@ -828,13 +821,13 @@ def update_hunters(grid, hunter_accuracy, screen):
         return
     hunters_positions = [
         (x, y) for y in range(GRID_HEIGHT) for x in range(GRID_WIDTH)
-        if cell_type(grid[y][x]) == ENEMY
+        if cell_type(grid[y][x]) == HUNTER
     ]
     collision_occurred = False
     for (ex, ey) in hunters_positions:
         if collision_occurred:
             break
-        if cell_type(grid[ey][ex]) != ENEMY:
+        if cell_type(grid[ey][ex]) != HUNTER:
             continue
         path = a_star_path_for_enemy(grid, (ex, ey), player_pos)
         moved = False
@@ -846,11 +839,10 @@ def update_hunters(grid, hunter_accuracy, screen):
                 collision_occurred = True
                 continue
             elif t == EMPTY:
-                grid[ny][nx] = ENEMY
+                grid[ny][nx] = HUNTER
                 grid[ey][ex] = EMPTY
                 moved = True
         if not moved:
-            # now includes diagonals in random choice
             possible_moves = [
                 (0,1),(0,-1),(1,0),(-1,0),
                 (1,1),(1,-1),(-1,1),(-1,-1)
@@ -864,7 +856,7 @@ def update_hunters(grid, hunter_accuracy, screen):
                     collision_occurred = True
                     continue
                 elif t == EMPTY:
-                    grid[ny][nx] = ENEMY
+                    grid[ny][nx] = HUNTER
                     grid[ey][ex] = EMPTY
 
 def update_sentinels(grid, sentinel_accuracy, screen):
@@ -898,7 +890,6 @@ def update_sentinels(grid, sentinel_accuracy, screen):
                 grid[sy][sx] = EMPTY
                 moved = True
         if not moved:
-            # now includes diagonals in random choice
             possible_moves = [
                 (0,1),(0,-1),(1,0),(-1,0),
                 (1,1),(1,-1),(-1,1),(-1,-1)
@@ -938,7 +929,7 @@ def a_star_path_for_pusher(grid, start, goal):
             if not (0 <= nx < GRID_WIDTH and 0 <= ny < GRID_HEIGHT):
                 continue
             t = cell_type(grid[ny][nx])
-            if t in (UNMOVEABLE_BLOCK, MOVEABLE_BLOCK, ENEMY, PUSHER, SENTINEL, EGG):
+            if t in (UNMOVEABLE_BLOCK, MOVEABLE_BLOCK, HUNTER, PUSHER, SENTINEL, EGG):
                 continue
             cost = g_score[current] + 1
             if (nx, ny) not in g_score or cost < g_score[(nx, ny)]:
@@ -981,7 +972,7 @@ def pusher_push_blocks(grid, start_pos, dx, dy, screen):
             grid[y][x] = EMPTY
             grid[ny][nx] = PUSHER
             return True
-        elif final_t in (PLAYER, ENEMY, PUSHER, SENTINEL):
+        elif final_t in (PLAYER, HUNTER, PUSHER, SENTINEL):
             bx2, by2 = cx+dx, cy+dy
             if not (0 <= bx2 < GRID_WIDTH and 0 <= by2 < GRID_HEIGHT):
                 return False
@@ -998,7 +989,7 @@ def pusher_push_blocks(grid, start_pos, dx, dy, screen):
                 return False
         else:
             return False
-    elif occupant_t in (ENEMY, PUSHER, SENTINEL):
+    elif occupant_t in (HUNTER, PUSHER, SENTINEL):
         bx2, by2 = nx+dx, ny+dy
         if not (0 <= bx2 < GRID_WIDTH and 0 <= by2 < GRID_HEIGHT):
             return False
@@ -1106,7 +1097,7 @@ def level_selection_screen(screen, clock):
         draw_text(screen, " \xDF\xDF\xDF\xDF\xDB\xDB \xDB\xDB \xDF\xDC\xDB\xDB \xDB\xDB   \xDB\xDB  \xDB\xDB   \xDF\xDF\xDF\xDF\xDB\xDB \xDB\xDB\xDF\xDF\xDF\xDB\xDB", 19*16, 4*32, EGG_COLOR_0)
         draw_text(screen, "\xDF\xDB\xDB\xDB\xDB\xDB\xDF \xDF\xDB\xDB\xDB\xDB\xDF\xDC \xDF\xDB\xDB\xDB\xDB\xDB\xDF \xDE\xDB\xDB\xDD \xDF\xDB\xDB\xDB\xDB\xDB\xDF \xDB\xDB   \xDB\xDB", 19*16, 5*32, EGG_COLOR_1)
         
-        level_y = 256  # adjust vertical position as needed
+        level_y = 256 
         x = 128
         for idx, lvl in enumerate(levels):
             color = HIGHLIGHT_COLOR if idx == selected_index else TEXT_COLOR_DEFAULT
@@ -1115,7 +1106,7 @@ def level_selection_screen(screen, clock):
 
         # Draw prompt instructions
         prompt = "Arrow keys: select  \xB3  ENTER: start  \xB3  H: high scores  \xB3  ESC: quit"
-        draw_text(screen, prompt, 0, screen.get_height() - 32, TEXT_COLOR_DEFAULT)
+        draw_text(screen, prompt, 6*16, screen.get_height() - 32, TEXT_COLOR_DEFAULT)
         pygame.display.flip()
 
         for event in pygame.event.get():
@@ -1312,7 +1303,7 @@ def play_sublevel(level_def, sublevel, screen, clock, initial_sublevel_score, ti
         clock.tick(10)
 
         # If no enemies or eggs remain, sublevel is done
-        any_enemies = any(cell_type(c) in [ENEMY, PUSHER, SENTINEL, EGG] for row in grid for c in row)
+        any_enemies = any(cell_type(c) in [HUNTER, PUSHER, SENTINEL, EGG] for row in grid for c in row)
         if not any_enemies:
             break
 
@@ -1396,7 +1387,7 @@ def generate_level(info, sublevel):
         rx = random.randint(1, GRID_WIDTH-2)
         ry = random.randint(1, GRID_HEIGHT-2)
         if cell_type(grid[ry][rx]) == EMPTY:
-            grid[ry][rx] = ENEMY
+            grid[ry][rx] = HUNTER
             placed_hunters += 1
     placed_pushers = 0
     while placed_pushers < p_count:
