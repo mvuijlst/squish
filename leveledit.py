@@ -4,15 +4,13 @@ import json
 from typing import Dict, Any
 import copy
 
-class LevelEditor:
+class SpreadsheetLevelEditor:
     def __init__(self, root):
         self.root = root
-        self.root.title("Game Level Editor")
+        self.root.title("Game Level Editor - Spreadsheet View")
         
         # Load initial data
         self.levels = self.load_levels()
-        self.current_level = None
-        
         self.setup_ui()
         
     def load_levels(self) -> list:
@@ -24,96 +22,136 @@ class LevelEditor:
             
     def save_levels(self):
         try:
+            self.update_all_levels()
             with open('levels.json', 'w') as f:
                 json.dump(self.levels, f, indent=2)
             messagebox.showinfo("Success", "Levels saved successfully!")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save levels: {str(e)}")
-    
+
     def setup_ui(self):
-        # Main container
-        main_frame = ttk.Frame(self.root, padding="10")
-        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        # Main container with scrollbar
+        main_frame = ttk.Frame(self.root)
+        main_frame.grid(row=0, column=0, sticky="nsew")
         
-        # Level selection
-        level_frame = ttk.LabelFrame(main_frame, text="Level Selection", padding="5")
-        level_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
+        # Configure root grid
+        self.root.grid_rowconfigure(0, weight=1)
+        self.root.grid_columnconfigure(0, weight=1)
         
-        self.level_var = tk.StringVar()
-        self.level_dropdown = ttk.Combobox(level_frame, textvariable=self.level_var)
-        self.level_dropdown['values'] = [level['level'] for level in self.levels]
-        self.level_dropdown.grid(row=0, column=0, padx=5)
-        self.level_dropdown.bind('<<ComboboxSelected>>', self.on_level_selected)
+        # Create canvas and scrollbar
+        canvas = tk.Canvas(main_frame)
+        scrollbar = ttk.Scrollbar(main_frame, orient="horizontal", command=canvas.xview)
+        scrollbar.grid(row=1, column=0, sticky="ew")
         
-        ttk.Button(level_frame, text="New Level", command=self.create_new_level).grid(row=0, column=1, padx=5)
-        ttk.Button(level_frame, text="Save All", command=self.save_levels).grid(row=0, column=2, padx=5)
+        canvas.configure(xscrollcommand=scrollbar.set)
+        canvas.grid(row=0, column=0, sticky="nsew")
         
-        # Level properties
-        props_frame = ttk.LabelFrame(main_frame, text="Level Properties", padding="5")
-        props_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
+        # Frame for the table
+        self.table_frame = ttk.Frame(canvas)
+        canvas.create_window((0, 0), window=self.table_frame, anchor="nw")
         
-        # Basic properties
-        self.level_name_var = tk.StringVar()
-        ttk.Label(props_frame, text="Level Name:").grid(row=0, column=0, sticky=tk.W)
-        self.level_name_entry = ttk.Entry(props_frame, textvariable=self.level_name_var)
-        self.level_name_entry.grid(row=0, column=1, sticky=(tk.W, tk.E))
+        # Save button at the top
+        ttk.Button(self.table_frame, text="Save All", command=self.save_levels).grid(row=0, column=0, padx=5, pady=5)
+        ttk.Button(self.table_frame, text="Add Level", command=self.add_new_level).grid(row=0, column=1, padx=5, pady=5)
         
-        self.winning_level_var = tk.IntVar()
-        ttk.Label(props_frame, text="Winning Level:").grid(row=1, column=0, sticky=tk.W)
-        self.winning_level_spinbox = ttk.Spinbox(props_frame, from_=1, to=100, textvariable=self.winning_level_var)
-        self.winning_level_spinbox.grid(row=1, column=1, sticky=(tk.W, tk.E))
+        # Properties list (first column)
+        properties = [
+            ("Level Name", "level", "entry"),
+            ("Winning Level", "winning_level", "spinbox", 1, 100),
+            ("Pull Blocks", "pull_blocks", "checkbox"),
+            ("Speed Up", "speed_up", "checkbox"),
+            ("Explosive Blocks", "explosive_blocks", "checkbox"),
+            ("Hunter Count", "enemies.hunter.count", "spinbox", 0, 10),
+            ("Hunter Speed (ms)", "enemies.hunter.speed_ms", "spinbox", 100, 2000),
+            ("Hunter Accuracy (%)", "enemies.hunter.accuracy", "spinbox", 0, 100),
+            ("Hunter Speed Variability", "enemies.hunter.speed_variability", "spinbox", 0, 100),
+            ("Hunter Mutation Ratio", "enemies.hunter.mutation_ratio", "spinbox", 0, 1),
+            ("Egg Count", "enemies.egg.count", "spinbox", 0, 10),
+            ("Egg Incubation (s)", "enemies.egg.incubation_s", "spinbox", 0, 100)
+        ]
         
-        # Toggles
-        self.pull_blocks_var = tk.BooleanVar()
-        self.speed_up_var = tk.BooleanVar()
-        self.explosive_blocks_var = tk.BooleanVar()
+        # Create property labels
+        for row, prop in enumerate(properties, start=1):
+            ttk.Label(self.table_frame, text=prop[0]).grid(row=row, column=0, padx=5, pady=2, sticky="e")
         
-        ttk.Checkbutton(props_frame, text="Pull Blocks", variable=self.pull_blocks_var).grid(row=2, column=0, columnspan=2, sticky=tk.W)
-        ttk.Checkbutton(props_frame, text="Speed Up", variable=self.speed_up_var).grid(row=3, column=0, columnspan=2, sticky=tk.W)
-        ttk.Checkbutton(props_frame, text="Explosive Blocks", variable=self.explosive_blocks_var).grid(row=4, column=0, columnspan=2, sticky=tk.W)
+        # Create input fields for each level
+        self.level_widgets = []
+        for col, level_data in enumerate(self.levels, start=1):
+            level_inputs = {}
+            for row, prop in enumerate(properties, start=1):
+                prop_path = prop[1]
+                widget_type = prop[2]
+                args = prop[3:] if len(prop) > 3 else []
+                
+                value = self.get_nested_value(level_data, prop_path)
+                widget = self.create_widget(widget_type, value, *args)
+                widget.grid(row=row, column=col, padx=5, pady=2)
+                level_inputs[prop_path] = widget
+            self.level_widgets.append(level_inputs)
+            
+        # Update canvas scroll region
+        self.table_frame.update_idletasks()
+        canvas.configure(scrollregion=canvas.bbox("all"))
         
-        # Enemies frame
-        enemies_frame = ttk.LabelFrame(main_frame, text="Enemies", padding="5")
-        enemies_frame.grid(row=1, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5, padx=5)
+        # Make main_frame expandable
+        main_frame.grid_rowconfigure(0, weight=1)
+        main_frame.grid_columnconfigure(0, weight=1)
         
-        # Hunter properties
-        hunter_frame = ttk.LabelFrame(enemies_frame, text="Hunter", padding="5")
-        hunter_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=5)
+    def create_widget(self, widget_type, value, *args):
+        if widget_type == "entry":
+            widget = ttk.Entry(self.table_frame)
+            widget.insert(0, str(value))
+            return widget
+        elif widget_type == "spinbox":
+            min_val, max_val = args
+            widget = ttk.Spinbox(self.table_frame, from_=min_val, to=max_val)
+            widget.set(value)
+            return widget
+        elif widget_type == "checkbox":
+            var = tk.BooleanVar(value=bool(value))
+            widget = ttk.Checkbutton(self.table_frame, variable=var)
+            # Store the variable in the widget for later access
+            widget.var = var
+            return widget
+            
+    def get_nested_value(self, data: Dict, path: str) -> Any:
+        keys = path.split('.')
+        value = data
+        for key in keys:
+            if isinstance(value, dict):
+                value = value.get(key, {})
+            else:
+                return None
+        return value
         
-        self.hunter_count_var = tk.IntVar()
-        self.hunter_speed_var = tk.IntVar()
-        self.hunter_accuracy_var = tk.IntVar()
+    def set_nested_value(self, data: Dict, path: str, value: Any):
+        keys = path.split('.')
+        current = data
+        for key in keys[:-1]:
+            if key not in current:
+                current[key] = {}
+            current = current[key]
+        current[keys[-1]] = value
         
-        ttk.Label(hunter_frame, text="Count:").grid(row=0, column=0, sticky=tk.W)
-        ttk.Spinbox(hunter_frame, from_=0, to=10, textvariable=self.hunter_count_var).grid(row=0, column=1)
-        
-        ttk.Label(hunter_frame, text="Speed (ms):").grid(row=1, column=0, sticky=tk.W)
-        ttk.Spinbox(hunter_frame, from_=100, to=2000, increment=100, textvariable=self.hunter_speed_var).grid(row=1, column=1)
-        
-        ttk.Label(hunter_frame, text="Accuracy (%):").grid(row=2, column=0, sticky=tk.W)
-        ttk.Spinbox(hunter_frame, from_=0, to=100, textvariable=self.hunter_accuracy_var).grid(row=2, column=1)
-        
-        # Egg properties
-        egg_frame = ttk.LabelFrame(enemies_frame, text="Egg", padding="5")
-        egg_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=5)
-        
-        self.egg_count_var = tk.IntVar()
-        self.egg_incubation_var = tk.IntVar()
-        
-        ttk.Label(egg_frame, text="Count:").grid(row=0, column=0, sticky=tk.W)
-        ttk.Spinbox(egg_frame, from_=0, to=10, textvariable=self.egg_count_var).grid(row=0, column=1)
-        
-        ttk.Label(egg_frame, text="Incubation (s):").grid(row=1, column=0, sticky=tk.W)
-        ttk.Spinbox(egg_frame, from_=0, to=100, textvariable=self.egg_incubation_var).grid(row=1, column=1)
-        
-        # Bind update events
-        for var in [self.level_name_var, self.winning_level_var, self.pull_blocks_var,
-                   self.speed_up_var, self.explosive_blocks_var, self.hunter_count_var,
-                   self.hunter_speed_var, self.hunter_accuracy_var, self.egg_count_var,
-                   self.egg_incubation_var]:
-            var.trace_add('write', self.update_current_level)
-    
-    def create_new_level(self):
+    def update_all_levels(self):
+        for level_idx, level_inputs in enumerate(self.level_widgets):
+            level_data = self.levels[level_idx]
+            for prop_path, widget in level_inputs.items():
+                if isinstance(widget, ttk.Checkbutton):
+                    value = widget.var.get()
+                else:
+                    value = widget.get()
+                    # Convert to appropriate type
+                    if prop_path in ['winning_level', 'enemies.hunter.count', 
+                                   'enemies.hunter.speed_ms', 'enemies.hunter.accuracy',
+                                   'enemies.hunter.speed_variability', 'enemies.egg.count',
+                                   'enemies.egg.incubation_s']:
+                        value = int(float(value))
+                    elif prop_path == 'enemies.hunter.mutation_ratio':
+                        value = float(value)
+                self.set_nested_value(level_data, prop_path, value)
+                
+    def add_new_level(self):
         new_level = {
             "level": f"Level_{len(self.levels) + 1}",
             "pull_blocks": False,
@@ -131,82 +169,13 @@ class LevelEditor:
             }
         }
         self.levels.append(new_level)
-        self.level_dropdown['values'] = [level['level'] for level in self.levels]
-        self.level_dropdown.set(new_level['level'])
-        self.load_level_data(new_level)
-    
-    def on_level_selected(self, event):
-        selected = self.level_var.get()
-        level_data = next((level for level in self.levels if level['level'] == selected), None)
-        if level_data:
-            self.load_level_data(level_data)
-    
-    def load_level_data(self, level_data: Dict[str, Any]):
-        self.current_level = level_data
-        
-        # Set basic properties
-        self.level_name_var.set(level_data['level'])
-        self.winning_level_var.set(level_data['winning_level'])
-        self.pull_blocks_var.set(level_data['pull_blocks'])
-        self.speed_up_var.set(level_data['speed_up'])
-        self.explosive_blocks_var.set(level_data['explosive_blocks'])
-        
-        # Set hunter properties
-        hunter_data = level_data['enemies'].get('hunter', {})
-        self.hunter_count_var.set(hunter_data.get('count', 0))
-        self.hunter_speed_var.set(hunter_data.get('speed_ms', 1100))
-        self.hunter_accuracy_var.set(hunter_data.get('accuracy', 100))
-        
-        # Set egg properties
-        egg_data = level_data['enemies'].get('egg', {})
-        self.egg_count_var.set(egg_data.get('count', 0))
-        self.egg_incubation_var.set(egg_data.get('incubation_s', 0))
-    
-    def update_current_level(self, *args):
-        if not self.current_level:
-            return
-            
-        try:
-            # Update basic properties
-            old_level_name = self.current_level['level']
-            self.current_level['level'] = self.level_name_var.get()
-            self.current_level['winning_level'] = self.winning_level_var.get()
-            self.current_level['pull_blocks'] = self.pull_blocks_var.get()
-            self.current_level['speed_up'] = self.speed_up_var.get()
-            self.current_level['explosive_blocks'] = self.explosive_blocks_var.get()
-            
-            # Update hunter properties
-            if 'hunter' not in self.current_level['enemies']:
-                self.current_level['enemies']['hunter'] = {}
-            self.current_level['enemies']['hunter'].update({
-                'count': self.hunter_count_var.get(),
-                'speed_ms': self.hunter_speed_var.get(),
-                'accuracy': self.hunter_accuracy_var.get()
-            })
-            
-            # Update egg properties
-            if self.egg_count_var.get() > 0:
-                if 'egg' not in self.current_level['enemies']:
-                    self.current_level['enemies']['egg'] = {'hatches_into': 'pusher'}
-                self.current_level['enemies']['egg'].update({
-                    'count': self.egg_count_var.get(),
-                    'incubation_s': self.egg_incubation_var.get()
-                })
-            elif 'egg' in self.current_level['enemies']:
-                del self.current_level['enemies']['egg']
-            
-            # Update dropdown if level name changed
-            if old_level_name != self.current_level['level']:
-                current_values = list(self.level_dropdown['values'])
-                index = current_values.index(old_level_name)
-                current_values[index] = self.current_level['level']
-                self.level_dropdown['values'] = current_values
-                self.level_dropdown.set(self.current_level['level'])
-                
-        except Exception as e:
-            print(f"Error updating level: {str(e)}")
+        # Recreate the entire UI to show the new level
+        for widget in self.table_frame.winfo_children():
+            widget.destroy()
+        self.setup_ui()
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = LevelEditor(root)
+    root.geometry("800x600")
+    app = SpreadsheetLevelEditor(root)
     root.mainloop()
