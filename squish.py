@@ -1,6 +1,6 @@
 #############################################
 ##                                         ##
-##          S Q U I S H  v4.0.0            ##
+##          S Q U I S H  v4.0.1            ##
 ##                                         ##
 ##      (c) 2025 Michel Vuijlsteke         ##
 ##                                         ##
@@ -9,18 +9,34 @@
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 
+import sys
 import pygame
 import random
-import sys
 import datetime
 import json
 import math
 from pygame.locals import *
 from heapq import heappush, heappop
 
-# -----------------------------------------------------------
+
+############################################################
+# 0) RESOURCE PATH HELPER
+############################################################
+def resource_path(relative_path):
+    """
+    Get absolute path to resource, works for dev and for PyInstaller --onefile.
+    """
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
+
+############################################################
 # 1) BASIC CONFIGURATION
-# -----------------------------------------------------------
+############################################################
 EMPTY = 0
 PLAYER = 1
 MOVEABLE_BLOCK = 2
@@ -42,15 +58,14 @@ SCALE_Y = 2
 SHEET_COLS = 16
 SHEET_ROWS = 16
 
-# Enemy point values (immediately added when squished)
 HUNTER_VALUE   = 2
 EGG_VALUE      = 3
 PUSHER_VALUE   = 5
 SENTINEL_VALUE = 7
 
-# -----------------------------------------------------------
+############################################################
 # 2) COLOR DEFINITIONS
-# -----------------------------------------------------------
+############################################################
 TEXT_COLOR_DEFAULT = (0xa7, 0xa7, 0xa7) 
 HIGHLIGHT_COLOR    = (0xfa, 0xfa, 0xfa) 
 
@@ -68,9 +83,9 @@ SENTINEL_COLOR = (0x47, 0x52, 0xcb)
 
 STATUS_BG_COLOR = (0x00, 0x00, 0x00)
 
-# -----------------------------------------------------------
+############################################################
 # 3) GLOBAL RESOURCES
-# -----------------------------------------------------------
+############################################################
 sprite_sheet = None
 sounds = {}
 lives = 3
@@ -78,17 +93,15 @@ current_level = 0
 running_level_score = 0
 cumulative_time = 0
 game_over_flag = False
-current_spritesheet = "dos_spritesheet.png"
 
 levels_data = []
+global_pause_offset = 0
 
-# Helper: return adjusted game time (only play time, not paused)
-def get_game_time():
-    return pygame.time.get_ticks() - global_pause_offset
+current_spritesheet = "dos_spritesheet.png"
 
-# -----------------------------------------------------------
+############################################################
 # 4) HELPER FUNCTIONS
-# -----------------------------------------------------------
+############################################################
 def cell_type(cell):
     if isinstance(cell, tuple):
         return cell[0]
@@ -134,9 +147,12 @@ def get_cell_color(cell):
         return SENTINEL_COLOR
     return (0, 0, 0)
 
-# -----------------------------------------------------------
-# 5a) HIGH SCORE HANDLING (NEW FORMAT)
-# -----------------------------------------------------------
+def get_game_time():
+    return pygame.time.get_ticks() - global_pause_offset
+
+############################################################
+# 5a) HIGH SCORE HANDLING
+############################################################
 SCORE_FILE = "highscores.dat"
 
 def encrypt_xor(data: bytes, key: int = 0xAA) -> bytes:
@@ -146,11 +162,11 @@ def decrypt_xor(data: bytes, key: int = 0xAA) -> bytes:
     return encrypt_xor(data, key)
 
 def load_highscores() -> list:
-    if not os.path.exists(SCORE_FILE):
+    if not os.path.exists(resource_path(SCORE_FILE)):
         save_highscores([])
         return []
     try:
-        with open(SCORE_FILE, "rb") as f:
+        with open(resource_path(SCORE_FILE), "rb") as f:
             encrypted = f.read()
         decrypted = decrypt_xor(encrypted, 0xAA).decode("utf-8", errors="ignore")
         lines = decrypted.strip().split("\n")
@@ -167,7 +183,6 @@ def load_highscores() -> list:
                     "name": name_str,
                     "highlight": False
                 }
-                # If name ends with "##", treat it as highlighted
                 if record["name"].endswith("##"):
                     record["name"] = record["name"][:-2]
                     record["highlight"] = True
@@ -182,12 +197,11 @@ def save_highscores(scores: list):
     scores = sorted(scores, key=lambda s: (-s["score"], s["time"]))[:20]
     lines = []
     for s in scores:
-        # If highlight is True, add "##" to name
         nm = s["name"] + ("##" if s.get("highlight") else "")
         lines.append(f'{s["date"]}|{s["level"]}|{s["score"]}|{s["time"]}|{nm}')
     data = "\n".join(lines)
     encrypted = encrypt_xor(data.encode("utf-8"), 0xAA)
-    with open(SCORE_FILE, "wb") as f:
+    with open(resource_path(SCORE_FILE), "wb") as f:
         f.write(encrypted)
 
 def ask_player_name() -> str:
@@ -229,16 +243,14 @@ def wait_for_key():
                 waiting = False
         clock.tick(15)
 
+############################################################
+# 5b) HIGH SCORE SCREENS (SCROLLABLE)
+############################################################
 def show_highscores_overall_scroll(surface, clock, scores):
-    """
-    Displays the overall high scores (top 20) in a scrollable view.
-    Press TAB to exit (so the caller can toggle the view), ESC to leave the high score screen.
-    """
     line_spacing = 32
-    x_margin = 16
-    y_start = 32
+    x_margin = 10
+    y_start = 10
 
-    # Build list of lines
     lines = []
     lines.append(("header", "    Name                     Date      Score  Time   Rank"))
     for idx, s in enumerate(scores, 1):
@@ -253,34 +265,39 @@ def show_highscores_overall_scroll(surface, clock, scores):
             rank = lvl
         else:
             rank = lvl + rank_char
-        # Build a formatted line
+
         line_text = f"{idx:2d}. {name_full}"
-        # We add extra dots to align columns (assume fixed width for simplicity)
-        filler = "." * max(0, 28 - len(line_text))
+        filler_len = max(0, 28 - len(line_text))
+        filler = "." * filler_len
         remainder = f" {date_display:<10}  {s['score']:>3d}  {format_time(s['time'])}  {rank}"
         full_line = line_text + filler + remainder
         lines.append(("line", full_line, color))
-    # Add a footer line
-    footer = "Press TAB to toggle view, ESC to exit"
-    lines.append(("footer", footer))
+
+    # Footer
+    lines.append(("footer", "Press TAB to toggle view, ESC to exit"))
 
     total_height = y_start + len(lines) * line_spacing + 20
     max_scroll = max(0, total_height - surface.get_height())
     scroll_offset = 0
 
-    running = True
-    while running:
-        surface.fill((0,0,0))
+    while True:
+        surface.fill((0, 0, 0))
         y = y_start - scroll_offset
         for entry in lines:
             etype = entry[0]
-            if etype in ("header", "line"):
+            if etype == "header":
                 text = entry[1]
-                color = entry[2] if etype=="line" else TEXT_COLOR_DEFAULT
+                draw_text(surface, text, x_margin, y, TEXT_COLOR_DEFAULT)
+                y += line_spacing
+            elif etype == "line":
+                text = entry[1]
+                color = entry[2]
                 draw_text(surface, text, x_margin, y, color)
                 y += line_spacing
             elif etype == "footer":
-                draw_text(surface, entry[1], x_margin, surface.get_height()-32, TEXT_COLOR_DEFAULT)
+                text = entry[1]
+                draw_text(surface, text, x_margin, surface.get_height() - 30, TEXT_COLOR_DEFAULT)
+
         pygame.display.flip()
 
         for event in pygame.event.get():
@@ -297,26 +314,20 @@ def show_highscores_overall_scroll(surface, clock, scores):
                     scroll_offset = min(max_scroll, scroll_offset + line_spacing)
         clock.tick(15)
 
-
 def show_highscores_by_level_scroll(surface, clock, scores):
-    """
-    Displays high scores grouped by level letter.
-    Only the top 3 per level are shown (32 px line height) and the view is scrollable.
-    Press TAB to toggle view, ESC to exit.
-    """
     line_spacing = 32
-    x_margin = 16
-    y_start = 32
+    x_margin = 10
+    y_start = 10
 
-    # Build list of lines for each level group
     lines = []
     groups = {}
     for s in scores:
         lvl_letter = s["level"][0] if s["level"] else ""
         groups.setdefault(lvl_letter, []).append(s)
     for lvl in sorted(groups.keys()):
+        # Group header: "Level A", "Level B", etc.
         lines.append(("group", f"Level {lvl}", HIGHLIGHT_COLOR))
-        # Only top 3 scores for each group
+        # Only show top 3
         group = sorted(groups[lvl], key=lambda x: (-x["score"], x["time"]))[:3]
         for idx, rec in enumerate(group, 1):
             color = HIGHLIGHT_COLOR if rec.get("highlight") else TEXT_COLOR_DEFAULT
@@ -329,35 +340,43 @@ def show_highscores_by_level_scroll(surface, clock, scores):
                 rec_rank = rec["level"]
             else:
                 rec_rank = rec["level"] + rank_char
-            # Construct formatted line
             line_text = f"{idx}. {name_full}"
-            filler = "." * max(0, 28 - len(line_text))
+            filler_len = max(0, 28 - len(line_text))
+            filler = "." * filler_len
             remainder = f" {date_display:<10}  {rec['score']:>3d}  {format_time(rec['time'])}  {rec_rank}"
             full_line = line_text + filler + remainder
             lines.append(("line", full_line, color))
         lines.append(("blank",))
-    # Footer line
-    lines.append(("footer", "Press TAB to toggle view, ESC to exit                                                 "))
 
-    total_height = y_start + sum(line_spacing if e[0] in ("group", "line") else 10 for e in lines) + 20
+    lines.append(("footer", "Press TAB to toggle view, ESC to exit"))
+
+    # Compute total height for scrolling
+    total_height = 0
+    for entry in lines:
+        if entry[0] in ("group", "line", "footer"):
+            total_height += line_spacing
+        elif entry[0] == "blank":
+            total_height += line_spacing
+
+    total_height += y_start + 20
     max_scroll = max(0, total_height - surface.get_height())
     scroll_offset = 0
 
-    running = True
-    while running:
-        surface.fill((0,0,0))
+    while True:
+        surface.fill((0, 0, 0))
         y = y_start - scroll_offset
-        for entry in lines: 
+        for entry in lines:
             etype = entry[0]
             if etype in ("group", "line"):
                 text = entry[1]
-                color = entry[2] if etype in ("group", "line") else TEXT_COLOR_DEFAULT
+                color = entry[2]
                 draw_text(surface, text, x_margin, y, color)
                 y += line_spacing
             elif etype == "blank":
                 y += line_spacing
             elif etype == "footer":
-                draw_text(surface, entry[1], x_margin, surface.get_height()-32, TEXT_COLOR_DEFAULT)
+                draw_text(surface, entry[1], x_margin, surface.get_height() - 30, TEXT_COLOR_DEFAULT)
+
         pygame.display.flip()
 
         for event in pygame.event.get():
@@ -375,14 +394,9 @@ def show_highscores_by_level_scroll(surface, clock, scores):
         clock.tick(15)
 
 
-def high_score_screen(surface, clock, highlight_record=None):
-    """
-    Toggles between overall and per-level high score views.
-    Use TAB to switch between the two.
-    """
+def high_score_screen(surface, clock):
     scores = load_highscores()
-    view = 0  # 0 = Overall, 1 = Per Level
-
+    view = 0  # 0 => overall, 1 => per-level
     while True:
         if view == 0:
             result = show_highscores_overall_scroll(surface, clock, scores)
@@ -395,53 +409,53 @@ def high_score_screen(surface, clock, highlight_record=None):
 
 def maybe_record_highscore(total_score: int, level: str, screen, time_played: int):
     scores = load_highscores()
-    # Clear any existing highlights so only one record can be highlighted
     for s in scores:
         s["highlight"] = False
 
     qualifies = False
     if len(scores) < 20:
-         qualifies = True
+        qualifies = True
     else:
-         worst = scores[-1]
-         if total_score > worst['score'] or (total_score == worst['score'] and time_played < worst['time']):
-              qualifies = True
+        worst = scores[-1]
+        if total_score > worst['score'] or (total_score == worst['score'] and time_played < worst['time']):
+            qualifies = True
 
-    level_key = level[0]
-    level_scores = [s for s in scores if s["level"][0] == level_key]
+    # Check top 5 per letter
+    level_key = level[0] if level else ""
+    level_scores = [s for s in scores if s["level"] and s["level"][0] == level_key]
     level_scores = sorted(level_scores, key=lambda s: (-s["score"], s["time"]))[:5]
     if level_scores:
-         worst_level = level_scores[-1]
-         if total_score > worst_level["score"] or (total_score == worst_level["score"] and time_played < worst_level["time"]):
-              qualifies = True
+        worst_level = level_scores[-1]
+        if total_score > worst_level["score"] or (total_score == worst_level["score"] and time_played < worst_level["time"]):
+            qualifies = True
     else:
-         qualifies = True
+        qualifies = True
 
     if qualifies:
-         name = ask_player_name()
-         highlight = True
+        name = ask_player_name()
+        highlight = True
     else:
-         name = "anonymous"
-         highlight = False
+        name = "anonymous"
+        highlight = False
 
     dt_str = datetime.datetime.now().isoformat(timespec="seconds")
     new_record = {
-         "date": dt_str,
-         "level": level,
-         "score": total_score,
-         "time": time_played,
-         "name": name,
-         "highlight": highlight
+        "date": dt_str,
+        "level": level,
+        "score": total_score,
+        "time": time_played,
+        "name": name,
+        "highlight": highlight
     }
     scores.append(new_record)
     save_highscores(scores)
     high_score_screen(screen, pygame.time.Clock())
 
-# -----------------------------------------------------------
-# 5b) PAUSE AND QUIT CONFIRMATION (with timer pause)
-# -----------------------------------------------------------
+############################################################
+# 5b) PAUSE AND QUIT CONFIRMATION
+############################################################
 def pause_game(screen):
-    global global_pause_offset, running_level_score
+    global global_pause_offset
     pause_start = pygame.time.get_ticks()
     paused = True
     clock = pygame.time.Clock()
@@ -452,8 +466,7 @@ def pause_game(screen):
             elif event.type == KEYDOWN:
                 if event.key in (K_q, ord('q')):
                     if quit_confirm(screen):
-                        # Pressing q in pause => return -1 => go to level select
-                        return -1
+                        return -1  # means user wants to quit to level select
                 elif event.key == K_SPACE:
                     paused = False
         screen.fill((0, 0, 0))
@@ -494,12 +507,13 @@ def quit_confirm(screen) -> bool:
         pygame.display.flip()
         clock.tick(10)
 
-# -----------------------------------------------------------
+############################################################
 # 6c) SPRITE-SHEET TEXT RENDERING
-# -----------------------------------------------------------
+############################################################
 def load_sprite_sheet(filename):
     global sprite_sheet
-    sprite_sheet = pygame.image.load(filename).convert_alpha()
+    actual_path = resource_path(filename)
+    sprite_sheet = pygame.image.load(actual_path).convert_alpha()
 
 def draw_char(surface, ch, x, y, color):
     code = ord(ch)
@@ -524,9 +538,9 @@ def draw_text(surface, text, x, y, color):
         draw_char(surface, ch, x + offset_x, y, color)
         offset_x += CHAR_WIDTH * SCALE_X
 
-# -----------------------------------------------------------
+############################################################
 # 7) ENTITY MAPPINGS
-# -----------------------------------------------------------
+############################################################
 WALL_CHARS     = "\xDB\xDB"
 BLOCK0_CHARS   = "\xB0\xB0"
 BLOCK1_CHARS   = "\xB1\xB1"
@@ -565,9 +579,9 @@ def get_cell_string(cell):
     else:
         return "??"
 
-# -----------------------------------------------------------
+############################################################
 # 8) DRAWING THE GRID & STATUS
-# -----------------------------------------------------------
+############################################################
 def draw_grid(screen, grid):
     screen.fill((0, 0, 0))
     for y in range(GRID_HEIGHT):
@@ -608,9 +622,9 @@ def draw_status_line(screen, grid, level_start_time, lives, level_name, running_
         draw_text(screen, text, x, y, col)
         x += len(text) * CHAR_WIDTH * SCALE_X
 
-# -----------------------------------------------------------
-# 9) PLAYER SPAWN LOGIC & ANIMATION (improved spawn)
-# -----------------------------------------------------------
+############################################################
+# 9) PLAYER SPAWN LOGIC & ANIMATION
+############################################################
 def get_player_position(grid):
     for yy in range(GRID_HEIGHT):
         for xx in range(GRID_WIDTH):
@@ -659,9 +673,10 @@ def respawn_player(grid, screen):
 
 def show_spawn_animation(grid, screen, x, y):
     steps = [
+        ("\xFA\xFA", (0xff, 0xff, 0xff)),
         ("--", (0xff, 0x00, 0x00)),
-        ("←→", (0xff, 0x99, 0x00)),
-        ("«»", (0xff, 0xff, 0x00)),
+        ("\x1B\x1A", (0xff, 0x99, 0x00)),
+        ("\xAE\xAF", (0xff, 0xff, 0x00)),
         ("<>", (0xff, 0xff, 0xff))
     ]
     clock = pygame.time.Clock()
@@ -673,9 +688,9 @@ def show_spawn_animation(grid, screen, x, y):
         pygame.display.flip()
         clock.tick(5)
 
-# -----------------------------------------------------------
+############################################################
 # 10) GAME OVER & COLLISION
-# -----------------------------------------------------------
+############################################################
 def game_over_screen(screen):
     screen.fill((0, 0, 0))
     msg = "Game Over"
@@ -701,9 +716,9 @@ def handle_collision(grid, screen):
     else:
         respawn_player(grid, screen)
 
-# -----------------------------------------------------------
+############################################################
 # 11) PLAYER MOVEMENT
-# -----------------------------------------------------------
+############################################################
 def move_player_direction(grid, direction, stats, screen, explosive_enabled=False):
     player_pos = get_player_position(grid)
     if not player_pos:
@@ -720,9 +735,6 @@ def move_player_direction(grid, direction, stats, screen, explosive_enabled=Fals
     elif t == UNMOVEABLE_BLOCK:
         if explosive_enabled:
             handle_collision(grid, screen)
-        else:
-            # Do nothing – simply ignore the move (player stays in place)
-            pass
     elif t in (HUNTER, PUSHER, SENTINEL):
         handle_collision(grid, screen)
     return grid
@@ -787,13 +799,11 @@ def push_blocks_player(grid, start_pos, direction, stats, screen, explosive_enab
             stats["score"] = stats.get("score", 0) + PUSHER_VALUE
             sounds['squish'].play()
 
-    ### CHANGED ###: Now Sentinels CAN be squished if there's a chain AND behind them is an unmoveable block
     elif occupant_t == SENTINEL:
-        if chain:  # we have at least one moveable block pushing
+        if chain:
             behind_x, behind_y = cx + dx, cy + dy
             if (0 <= behind_x < GRID_WIDTH and 0 <= behind_y < GRID_HEIGHT):
                 if cell_type(grid[behind_y][behind_x]) == UNMOVEABLE_BLOCK:
-                    # The sentinel is sandwiched: squish it
                     for bx, by in reversed(chain):
                         grid[by+dy][bx+dx] = grid[by][bx]
                         grid[by][bx] = EMPTY
@@ -803,13 +813,10 @@ def push_blocks_player(grid, start_pos, direction, stats, screen, explosive_enab
                     stats["score"] = stats.get("score", 0) + SENTINEL_VALUE
                     sounds['squish'].play()
                 else:
-                    # can't squish => do nothing
                     return
             else:
-                # out of bounds => can't squish
                 return
         else:
-            # no chain => can't squish
             return
 
     elif occupant_t == EGG:
@@ -824,9 +831,9 @@ def push_blocks_player(grid, start_pos, direction, stats, screen, explosive_enab
             stats["score"] = stats.get("score", 0) + EGG_VALUE
             sounds['squish'].play()
 
-# -----------------------------------------------------------
+############################################################
 # 12) UPDATE EGGS, ENEMIES, AND PATHFINDING
-# -----------------------------------------------------------
+############################################################
 def update_eggs(grid):
     now = get_game_time()
     for y in range(GRID_HEIGHT):
@@ -842,10 +849,7 @@ def update_eggs(grid):
 def a_star_path_for_enemy(grid, start, goal):
     def heuristic(a, b):
         return abs(a[0] - b[0]) + abs(a[1] - b[1])
-    directions = [
-        (0,1),(0,-1),(1,0),(-1,0),
-        (1,1),(1,-1),(-1,1),(-1,-1)
-    ]
+    directions = [(0,1),(0,-1),(1,0),(-1,0),(1,1),(1,-1),(-1,1),(-1,-1)]
     open_set = []
     heappush(open_set, (0, start))
     came_from = {}
@@ -861,11 +865,10 @@ def a_star_path_for_enemy(grid, start, goal):
             return path
         cx, cy = current
         for (dx, dy) in directions:
-            nx, ny = cx + dx, cy + dy
+            nx, ny = cx+dx, cy+dy
             if not (0 <= nx < GRID_WIDTH and 0 <= ny < GRID_HEIGHT):
                 continue
             t = cell_type(grid[ny][nx])
-            # can't move onto ANY block or enemy
             if t in (UNMOVEABLE_BLOCK, MOVEABLE_BLOCK, HUNTER, PUSHER, SENTINEL, EGG):
                 continue
             cost = g_score[current] + 1
@@ -970,7 +973,7 @@ def a_star_path_for_pusher(grid, start, goal):
     open_set = []
     heappush(open_set, (0, start))
     came_from = {}
-    g_score = { start: 0 }
+    g_score = {start: 0}
     gx, gy = goal
     while open_set:
         _, current = heappop(open_set)
@@ -1073,16 +1076,17 @@ def do_pusher_random(grid, pos, screen):
         if pusher_push_blocks(grid, (px, py), dx, dy, screen):
             break
 
-# -----------------------------------------------------------
-# 15) LEVELS LOADING / DEFINITION (NEW FORMAT)
-# -----------------------------------------------------------
+############################################################
+# 15) LEVELS LOADING / DEFINITION
+############################################################
 def load_levels_json(filename="levels.json"):
     global levels_data
-    if not os.path.exists(filename):
+    path = resource_path(filename)
+    if not os.path.exists(path):
         print(f"ERROR: Cannot find {filename}. Using empty levels_data.")
         levels_data = []
         return
-    with open(filename, "r", encoding="utf-8") as f:
+    with open(path, "r", encoding="utf-8") as f:
         levels_data = json.load(f)
 
 def get_main_level_def(level_letter):
@@ -1101,11 +1105,19 @@ def get_main_level_def(level_letter):
                 incubation_s = egg_def.get("incubation_s", 0)
                 default["egg_incubation_ms"] = incubation_s * 1000
             return default
-    return {"level": level_letter, "pull_blocks": False, "speed_up": False, "explosive_blocks": False, "winning_level": 1, "enemies": {}, "egg_incubation_ms": 0}
+    return {
+        "level": level_letter,
+        "pull_blocks": False,
+        "speed_up": False,
+        "explosive_blocks": False,
+        "winning_level": 1,
+        "enemies": {},
+        "egg_incubation_ms": 0
+    }
 
-# -----------------------------------------------------------
-# NEW: LEVEL SELECTION & DETAILS SCREENS (COMPACT)
-# -----------------------------------------------------------
+############################################################
+# LEVEL SELECTION & DETAILS SCREENS
+############################################################
 def level_selection_screen(screen, clock):
     global current_spritesheet
     levels = sorted({ entry.get("level") for entry in levels_data })
@@ -1148,13 +1160,13 @@ def level_selection_screen(screen, clock):
                     selected_index = (selected_index + 1) % len(levels)
                 elif event.key == K_RETURN:
                     return levels[selected_index]
-                elif event.key == K_a:  # Toggle spritesheet when A is pressed
+                elif event.key == K_a:
+                    # Toggle spritesheet
                     if current_spritesheet == "dos_spritesheet.png":
-                        load_sprite_sheet("st_spritesheet.png")
                         current_spritesheet = "st_spritesheet.png"
                     else:
-                        load_sprite_sheet("dos_spritesheet.png")
                         current_spritesheet = "dos_spritesheet.png"
+                    load_sprite_sheet(current_spritesheet)
         clock.tick(15)
 
 def show_level_details_screen(screen, clock, level_def):
@@ -1183,6 +1195,7 @@ def show_level_details_screen(screen, clock, level_def):
                 enemy_lines.append(f"- {count} eggs")
         else:
             enemy_lines.append(f"- {count} {enemy_type}s")
+
     details = [
         f"Level {lvl}",
         "",
@@ -1213,9 +1226,9 @@ def show_level_details_screen(screen, clock, level_def):
                     return False
         clock.tick(15)
 
-# -----------------------------------------------------------
-# NEW: PLAY A MAIN LEVEL (with sublevels; no sublevel screen)
-# -----------------------------------------------------------
+############################################################
+# NEW: PLAY A MAIN LEVEL (with sublevels)
+############################################################
 def play_main_level(level_def, screen, clock, cumulative_score, cumulative_time):
     global lives, game_over_flag
     running_level_score = 0
@@ -1232,6 +1245,7 @@ def play_main_level(level_def, screen, clock, cumulative_score, cumulative_time)
         sub_time_offset = cumulative_time + level_time
         result = play_sublevel(level_def, sublevel, screen, clock, running_level_score, sub_time_offset)
         if result is None:
+            # means user quit mid-level
             lives = 3
             game_over_flag = False
             return None
@@ -1240,8 +1254,9 @@ def play_main_level(level_def, screen, clock, cumulative_score, cumulative_time)
         total_moves += moves
         total_enemies += enemies_eliminated
         level_time += time_taken
-        pygame.mixer.Sound("sound/sublevel.mp3").play()
-    pygame.mixer.Sound("sound/level.mp3").play()
+        pygame.mixer.Sound(resource_path("sound/sublevel.mp3")).play()
+
+    pygame.mixer.Sound(resource_path("sound/level.mp3")).play()
     show_level_complete_screen(screen, level_def.get("level"), total_moves, total_enemies, level_time, running_level_score)
     cumulative_time += level_time
     return total_moves, total_enemies, level_time, running_level_score, level_def.get("level"), cumulative_time
@@ -1249,6 +1264,7 @@ def play_main_level(level_def, screen, clock, cumulative_score, cumulative_time)
 def play_sublevel(level_def, sublevel, screen, clock, initial_sublevel_score, time_offset):
     global current_level, running_level_score
     global last_sublevel_name, last_sublevel_start_time, last_sublevel_time_offset
+
     enemies_def = level_def.get("enemies", {})
     h_speed = enemies_def.get("hunter", {}).get("speed_ms", 1000)
     h_acc   = enemies_def.get("hunter", {}).get("accuracy", 50)
@@ -1275,6 +1291,7 @@ def play_sublevel(level_def, sublevel, screen, clock, initial_sublevel_score, ti
         'sentinels_killed': 0,
         'score': running_score
     }
+
     explosive_enabled = level_def.get("explosive_blocks", False)
 
     level_start_time = get_game_time()
@@ -1289,12 +1306,10 @@ def play_sublevel(level_def, sublevel, screen, clock, initial_sublevel_score, ti
             elif event.type == KEYDOWN:
                 if event.key == K_ESCAPE:
                     pause_duration = pause_game(screen)
-                    # If user pressed q during pause => -1 => sublevel ends
                     if pause_duration == -1:
                         return None
                     level_start_time += max(0, pause_duration)
                 elif event.key in (K_q, ord('q')):
-                    # Pressing q => confirm => if yes => sublevel returns None => back to level select
                     if quit_confirm(screen):
                         return None
                 elif event.key in (K_UP, K_DOWN, K_LEFT, K_RIGHT):
@@ -1376,9 +1391,9 @@ def show_level_complete_screen(screen, level_letter, moves, enemies_eliminated, 
                     pygame.quit(); sys.exit()
         pygame.time.Clock().tick(15)
 
-# -----------------------------------------------------------
+############################################################
 # 16) GENERATE LEVEL
-# -----------------------------------------------------------
+############################################################
 def generate_level(info, sublevel):
     enemies = info.get("enemies", {})
     base_h_count = enemies.get("hunter", {}).get("count", 0)
@@ -1393,8 +1408,8 @@ def generate_level(info, sublevel):
         e_count = 0
     p_count = enemies.get("pusher", {}).get("count", 0)
     s_count = enemies.get("sentinel", {}).get("count", 0)
-
-    # Apply hunter mutation ratio
+    
+    # Hunter mutation
     hunter_def = enemies.get("hunter", {})
     mutation_ratio = hunter_def.get("mutation_ratio", 0)
     mutated = int(h_count * mutation_ratio)
@@ -1453,28 +1468,28 @@ def generate_level(info, sublevel):
             egg_positions.append((rx, ry))
     return grid
 
-# -----------------------------------------------------------
+############################################################
 # MAIN LOOP
-# -----------------------------------------------------------
+############################################################
 def main():
-    global lives, cumulative_time, global_pause_offset
+    global lives, cumulative_time, global_pause_offset, current_spritesheet
     pygame.init()
-    global_pause_offset = 0
     screen_width = GRID_WIDTH * (CHAR_WIDTH * SCALE_X * 2)
     screen_height = GRID_HEIGHT * (CHAR_HEIGHT * SCALE_Y) + STATUS_HEIGHT
     screen = pygame.display.set_mode((screen_width, screen_height))
     clock = pygame.time.Clock()
+
     load_sprite_sheet(current_spritesheet)
-    sounds['squish'] = pygame.mixer.Sound("sound/squish.mp3")
-    sounds['collision'] = pygame.mixer.Sound("sound/collision.mp3")
-    # Optionally:
-    # sounds['explosion'] = pygame.mixer.Sound("sound/explosion.mp3")
+
+    sounds['squish'] = pygame.mixer.Sound(resource_path("sound/squish.mp3"))
+    sounds['collision'] = pygame.mixer.Sound(resource_path("sound/collision.mp3"))
+
     load_levels_json("levels.json")
 
     while True:
         level_score = 0
         cumulative_time = 0
-        lives = 3  # Reset lives on returning to level selection
+        lives = 3
         selected_level_letter = level_selection_screen(screen, clock)
         level_def = get_main_level_def(selected_level_letter)
         if show_level_details_screen(screen, clock, level_def):
@@ -1482,8 +1497,6 @@ def main():
             if result is not None:
                 moves, enemies_eliminated, level_time, level_score, lvl, cumulative_time = result
                 maybe_record_highscore(level_score, lvl, screen, cumulative_time)
-        # Then return to selection screen
-
 
 if __name__ == "__main__":
     main()
