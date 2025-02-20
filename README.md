@@ -33,7 +33,12 @@ Mastering Squish means balancing quick reflexes with thoughtful planning as you 
 
 Squish is built in Python with `pygame`. To run from source:
 
-    shKopiërengit clone https://github.com/mvuijlst/squish.gitcd squishpip install -r requirements.txtpython squish.py
+```
+git clone https://github.com/mvuijlst/squish.git
+cd squish
+pip install -r requirements.txt
+python squish.py
+```
 
 ### Running the Executable
 
