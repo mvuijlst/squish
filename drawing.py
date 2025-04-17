@@ -65,19 +65,7 @@ def draw_text(surface, text, x, y, color):
         draw_char(surface, ch, x + offset_x, y, color)
         offset_x += config.CHAR_WIDTH * config.SCALE_X
 
-def draw_grid(screen, grid):
-    """Draws the main game grid."""
-    screen.fill((0, 0, 0)) # Clear screen
-    for y in range(config.GRID_HEIGHT):
-        for x in range(config.GRID_WIDTH):
-            cell_content = grid[y][x]
-            cell_str = get_cell_string(cell_content) # Need this function here or imported
-            color = utils.get_cell_color(cell_content)
-            px = x * (config.CHAR_WIDTH * config.SCALE_X * 2) # Double char width for cells
-            py = y * (config.CHAR_HEIGHT * config.SCALE_Y)
-            draw_text(screen, cell_str, px, py, color)
-
-# Helper needed by draw_grid - TODO: Move get_cell_string to a more appropriate module if needed
+# Moved from squish.py - needed by draw_grid
 def get_cell_string(cell):
     """Gets the character pair representation for a grid cell."""
     t = utils.cell_type(cell)
@@ -95,6 +83,20 @@ def get_cell_string(cell):
     elif t == config.SENTINEL: return config.SENTINEL_CHARS
     else: return "??"
 
+# Moved from squish.py
+def draw_grid(screen, grid):
+    """Draws the main game grid."""
+    screen.fill((0, 0, 0)) # Clear screen
+    for y in range(config.GRID_HEIGHT):
+        for x in range(config.GRID_WIDTH):
+            cell_content = grid[y][x]
+            cell_str = get_cell_string(cell_content) # Use local function
+            color = utils.get_cell_color(cell_content)
+            px = x * (config.CHAR_WIDTH * config.SCALE_X * 2) # Double char width for cells
+            py = y * (config.CHAR_HEIGHT * config.SCALE_Y)
+            draw_text(screen, cell_str, px, py, color) # Use local function
+
+# Moved from squish.py
 def draw_status_line(screen, grid, level_start_time, current_lives, level_name, current_score, time_offset):
     """Draws the status bar at the bottom."""
     status_y = config.GRID_HEIGHT * (config.CHAR_HEIGHT * config.SCALE_Y)
@@ -109,7 +111,8 @@ def draw_status_line(screen, grid, level_start_time, current_lives, level_name, 
                               if utils.cell_type(cell) in
                               [config.HUNTER, config.PUSHER, config.SENTINEL, config.EGG])
 
-    # TODO: Refactor initial_egg_count handling
+    # TODO: Refactor initial_egg_count handling - This attribute setting is poor practice.
+    # It should ideally be passed as a parameter or retrieved from a game state object.
     initial_egg_count = getattr(draw_status_line, "initial_egg_count", 0)
 
     segments = []
@@ -135,5 +138,5 @@ def draw_status_line(screen, grid, level_start_time, current_lives, level_name, 
     y = status_y + (config.STATUS_HEIGHT - config.CHAR_HEIGHT * config.SCALE_Y) // 2
 
     for text, col in segments:
-        draw_text(screen, text, x, y, col)
+        draw_text(screen, text, x, y, col) # Use local function
         x += len(text) * config.CHAR_WIDTH * config.SCALE_X
