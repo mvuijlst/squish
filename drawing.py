@@ -2,6 +2,8 @@ import pygame
 import config
 import utils
 import resources
+# Need to import GameState if it's defined elsewhere, or assume it's passed correctly
+# from squish import GameState # Example if GameState is in squish.py
 
 # Cache the sprite sheet locally in this module for performance
 _sprite_sheet_cache = None
@@ -96,25 +98,26 @@ def draw_grid(screen, grid):
             py = y * (config.CHAR_HEIGHT * config.SCALE_Y)
             draw_text(screen, cell_str, px, py, color) # Use local function
 
-# Moved from squish.py
-def draw_status_line(screen, grid, level_start_time, current_lives, level_name, current_score, time_offset):
-    """Draws the status bar at the bottom."""
+# Updated to accept GameState object
+def draw_status_line(screen, grid, game_state): # game_state replaces multiple parameters
+    """Draws the status bar at the bottom using GameState."""
     status_y = config.GRID_HEIGHT * (config.CHAR_HEIGHT * config.SCALE_Y)
     status_area_rect = pygame.Rect(0, status_y, screen.get_width(), config.STATUS_HEIGHT)
     screen.fill(config.STATUS_BG_COLOR, status_area_rect)
 
-    elapsed_seconds = time_offset + (utils.get_game_time() - level_start_time) // 1000
-    elapsed_seconds = max(0, elapsed_seconds)
+    # Get values from game_state
+    elapsed_seconds = game_state.get_elapsed_time()
     time_str = utils.format_time(elapsed_seconds)
+    current_lives = game_state.lives
+    level_name = game_state.current_level_name
+    current_score = game_state.score
+    initial_egg_count = game_state.initial_egg_count # Get from game_state
 
     current_enemy_count = sum(1 for row in grid for cell in row
                               if utils.cell_type(cell) in
                               [config.HUNTER, config.PUSHER, config.SENTINEL, config.EGG])
 
-    # TODO: Refactor initial_egg_count handling - This attribute setting is poor practice.
-    # It should ideally be passed as a parameter or retrieved from a game state object.
-    initial_egg_count = getattr(draw_status_line, "initial_egg_count", 0)
-
+    # Build status segments
     segments = []
     segments.append(("Enemies: ", config.TEXT_COLOR_DEFAULT))
     segments.append((f"{current_enemy_count}", config.HIGHLIGHT_COLOR))
@@ -133,6 +136,7 @@ def draw_status_line(screen, grid, level_start_time, current_lives, level_name, 
     segments.append(("  Score: ", config.TEXT_COLOR_DEFAULT))
     segments.append((f"{current_score}", config.HIGHLIGHT_COLOR))
 
+    # ... (calculate position and draw segments using draw_text) ...
     total_seg_width = sum(len(text) * config.CHAR_WIDTH * config.SCALE_X for text, col in segments)
     x = screen.get_width() - total_seg_width - 5
     y = status_y + (config.STATUS_HEIGHT - config.CHAR_HEIGHT * config.SCALE_Y) // 2

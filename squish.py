@@ -21,80 +21,79 @@ import config
 import utils
 import resources
 import highscore
+import drawing # Import the new drawing module
 # Placeholder for future modules
-# import drawing
 # import entities
 # import ui
 # import game_logic
 
-# --- TEMPORARY DRAWING FUNCTIONS (to be moved to drawing.py) ---
-# These are kept here temporarily until drawing.py is fully implemented
-# and imported, to avoid breaking the parts of the code still in this file.
-
-_temp_sprite_sheet_cache = None
-
-def _get_temp_sprite_sheet():
-    global _temp_sprite_sheet_cache
-    if _temp_sprite_sheet_cache is None:
-        _temp_sprite_sheet_cache = resources.get_sprite_sheet()
-    return _temp_sprite_sheet_cache
-
-def temp_draw_char(surface, ch, x, y, color):
-    sprite_sheet = _get_temp_sprite_sheet()
-    if not sprite_sheet: return # Safety check
-
-    code = ord(ch)
-    if code < 0 or code > 255: code = 127 # Use a default char for out-of-range
-
-    col = code % config.SHEET_COLS
-    row = code // config.SHEET_COLS
-    sx = col * config.CHAR_WIDTH
-    sy = row * config.CHAR_HEIGHT
-
-    char_rect = pygame.Rect(sx, sy, config.CHAR_WIDTH, config.CHAR_HEIGHT)
-    # Create a temporary surface for the character to allow tinting
-    char_surf = pygame.Surface((config.CHAR_WIDTH, config.CHAR_HEIGHT), pygame.SRCALPHA)
-    char_surf.blit(sprite_sheet, (0, 0), char_rect)
-
-    # Scale
-    scaled_w = config.CHAR_WIDTH * config.SCALE_X
-    scaled_h = config.CHAR_HEIGHT * config.SCALE_Y
-    char_surf = pygame.transform.scale(char_surf, (scaled_w, scaled_h))
-
-    # Tint
-    char_surf = utils.tint_surface(char_surf, color)
-
-    surface.blit(char_surf, (x, y))
-
-def temp_draw_text(surface, text, x, y, color):
-    offset_x = 0
-    for ch in text:
-        temp_draw_char(surface, ch, x + offset_x, y, color)
-        offset_x += config.CHAR_WIDTH * config.SCALE_X
-
-# Assign to the drawing namespace for compatibility until moved
-import drawing as drawing_module # Use alias to avoid conflict if drawing.py exists
-drawing_module.draw_text = temp_draw_text
-# --- END TEMPORARY DRAWING FUNCTIONS ---
+# --- REMOVED TEMPORARY DRAWING FUNCTIONS AND ALIAS ---
 
 
 ############################################################
-# Global Game State (To be moved into a Game class later)
+# Game State Class
 ############################################################
-lives = 3
-current_level = 0 # Perhaps sublevel index?
-running_level_score = 0
-cumulative_time = 0 # Tracks time across levels in a session
-game_over_flag = False
-# global_pause_offset is now managed in utils
+class GameState:
+    """Holds the mutable state of the current game session."""
+    def __init__(self):
+        self.lives: int = 3
+        self.score: int = 0
+        self.game_over: bool = False
+        # State relevant for high score recording on game over
+        self.current_level_name: str = ""
+        self.level_start_time: int = 0
+        self.time_offset: int = 0 # Time accumulated before the current level/sublevel
+        # State for UI
+        self.initial_egg_count: int = 0
 
-# High score manager instance
+    def reset_for_new_game(self):
+        self.lives = 3
+        self.score = 0
+        self.game_over = False
+        self.current_level_name = ""
+        self.level_start_time = 0
+        self.time_offset = 0
+        self.initial_egg_count = 0
+        utils.reset_pause_offset() # Also reset global pause offset
+
+    def start_sublevel(self, level_name: str, initial_score: int, time_offset: int, initial_eggs: int):
+        self.current_level_name = level_name
+        self.level_start_time = utils.get_game_time()
+        self.time_offset = time_offset
+        self.score = initial_score # Carry over score from previous sublevels
+        self.initial_egg_count = initial_eggs
+        # self.game_over should already be False if starting a new sublevel
+
+    def add_score(self, points: int):
+        self.score += points
+
+    def lose_life(self):
+        self.lives -= 1
+        if self.lives <= 0:
+            self.game_over = True
+
+    def get_elapsed_time(self) -> int:
+        """Calculates elapsed time for the current level/sublevel in seconds."""
+        elapsed_ms = utils.get_game_time() - self.level_start_time
+        total_seconds = self.time_offset + max(0, elapsed_ms // 1000)
+        return total_seconds
+
+
+############################################################
+# Global Instances (Minimize usage)
+############################################################
+# High score manager instance (can remain global for now)
 hs_manager = highscore.HighScoreManager()
 
-# Variables to track current sublevel state for high scores upon game over
-last_sublevel_name = ""
-last_sublevel_start_time = 0
-last_sublevel_time_offset = 0
+# --- REMOVED Global Game State Variables ---
+# lives = 3
+# current_level = 0 # Perhaps sublevel index?
+# running_level_score = 0
+# cumulative_time = 0 # Tracks time across levels in a session
+# game_over_flag = False
+# last_sublevel_name = ""
+# last_sublevel_start_time = 0
+# last_sublevel_time_offset = 0
 
 
 ############################################################
@@ -131,7 +130,7 @@ def pause_game(screen):
         for line in lines:
             lw = len(line) * config.CHAR_WIDTH * config.SCALE_X
             x = (screen.get_width() - lw) // 2 # Center on screen width
-            temp_draw_text(screen, line, x, y, config.HIGHLIGHT_COLOR) # Use temp draw
+            drawing.draw_text(screen, line, x, y, config.HIGHLIGHT_COLOR) # Use drawing.draw_text instead of temp_draw_text
             y += 40
 
         pygame.display.flip()
@@ -168,7 +167,7 @@ def quit_confirm(screen) -> bool:
         lw = len(msg) * config.CHAR_WIDTH * config.SCALE_X
         x = (screen.get_width() - lw) // 2
         y = screen.get_height() // 2 - 10
-        temp_draw_text(screen, msg, x, y, config.HIGHLIGHT_COLOR) # Use temp draw
+        drawing.draw_text(screen, msg, x, y, config.HIGHLIGHT_COLOR) # Use drawing.draw_text instead of temp_draw_text
 
         pygame.display.flip()
         clock.tick(10)
@@ -181,95 +180,13 @@ def quit_confirm(screen) -> bool:
 ############################################################
 # Constants like WALL_CHARS, PLAYER_CHARS etc. are now in config.py
 
-def get_cell_string(cell):
-    """Gets the character pair representation for a grid cell."""
-    t = utils.cell_type(cell)
-    if t == config.EMPTY:
-        return config.EMPTY_CHARS
-    elif t == config.PLAYER:
-        return config.PLAYER_CHARS
-    elif t == config.MOVEABLE_BLOCK:
-        # Block appearance might depend on state (e.g., index)
-        block_index = cell[1] if isinstance(cell, tuple) and len(cell) > 1 else 0
-        if block_index == 0: return config.BLOCK0_CHARS
-        elif block_index == 1: return config.BLOCK1_CHARS
-        else: return config.BLOCK2_CHARS # Default or index 2
-    elif t == config.UNMOVEABLE_BLOCK:
-        return config.WALL_CHARS
-    elif t == config.HUNTER:
-        return config.HUNTER_CHARS
-    elif t == config.EGG:
-        return config.EGG_CHARS
-    elif t == config.PUSHER:
-        return config.PUSHER_CHARS
-    elif t == config.SENTINEL:
-        return config.SENTINEL_CHARS
-    else:
-        return "??" # Unknown cell type
+# get_cell_string moved to drawing.py
 
 ############################################################
-# 8) DRAWING THE GRID & STATUS (Should move to drawing.py)
+# 8) DRAWING THE GRID & STATUS (Moved to drawing.py)
 ############################################################
-def draw_grid(screen, grid):
-    """Draws the main game grid."""
-    screen.fill((0, 0, 0)) # Clear screen
-    for y in range(config.GRID_HEIGHT):
-        for x in range(config.GRID_WIDTH):
-            cell_content = grid[y][x]
-            cell_str = get_cell_string(cell_content)
-            color = utils.get_cell_color(cell_content) # Use util function for color
-            px = x * (config.CHAR_WIDTH * config.SCALE_X * 2) # Double char width for cells
-            py = y * (config.CHAR_HEIGHT * config.SCALE_Y)
-            temp_draw_text(screen, cell_str, px, py, color) # Use temp draw
-
-def draw_status_line(screen, grid, level_start_time, current_lives, level_name, current_score, time_offset):
-    """Draws the status bar at the bottom."""
-    status_y = config.GRID_HEIGHT * (config.CHAR_HEIGHT * config.SCALE_Y)
-    status_area_rect = pygame.Rect(0, status_y, screen.get_width(), config.STATUS_HEIGHT)
-    screen.fill(config.STATUS_BG_COLOR, status_area_rect) # Black background for status
-
-    # Calculate elapsed time for the current level/sublevel
-    elapsed_seconds = time_offset + (utils.get_game_time() - level_start_time) // 1000
-    elapsed_seconds = max(0, elapsed_seconds) # Ensure non-negative time
-    time_str = utils.format_time(elapsed_seconds)
-
-    # Count enemies (consider optimizing if grid is large)
-    current_enemy_count = sum(1 for row in grid for cell in row
-                              if utils.cell_type(cell) in
-                              [config.HUNTER, config.PUSHER, config.SENTINEL, config.EGG])
-
-    # Count initial eggs (this needs better state management, maybe pass as param or store in Level object)
-    # Using a temporary placeholder attribute on the function itself is fragile.
-    initial_egg_count = getattr(draw_status_line, "initial_egg_count", 0) # TODO: Refactor this
-
-    # Build status segments
-    segments = []
-    segments.append(("Enemies: ", config.TEXT_COLOR_DEFAULT))
-    segments.append((f"{current_enemy_count}", config.HIGHLIGHT_COLOR))
-
-    if initial_egg_count > 0:
-        current_egg_count = sum(1 for row in grid for c in row if utils.cell_type(c) == config.EGG)
-        segments.append(("  Eggs: ", config.TEXT_COLOR_DEFAULT))
-        segments.append((f"{current_egg_count}", config.HIGHLIGHT_COLOR))
-
-    segments.append(("  Level: ", config.TEXT_COLOR_DEFAULT))
-    segments.append((f"{level_name}", config.HIGHLIGHT_COLOR))
-    segments.append(("  Time: ", config.TEXT_COLOR_DEFAULT))
-    segments.append((f"{time_str}", config.HIGHLIGHT_COLOR))
-    segments.append(("  Lives: ", config.TEXT_COLOR_DEFAULT))
-    segments.append((f"{current_lives}", config.HIGHLIGHT_COLOR)) # Use passed lives
-    segments.append(("  Score: ", config.TEXT_COLOR_DEFAULT))
-    segments.append((f"{current_score}", config.HIGHLIGHT_COLOR)) # Use passed score
-
-    # Calculate total width and starting position for right-alignment
-    total_seg_width = sum(len(text) * config.CHAR_WIDTH * config.SCALE_X for text, col in segments)
-    x = screen.get_width() - total_seg_width - 5 # Right align with padding
-    y = status_y + (config.STATUS_HEIGHT - config.CHAR_HEIGHT * config.SCALE_Y) // 2 # Center vertically
-
-    # Draw segments
-    for text, col in segments:
-        temp_draw_text(screen, text, x, y, col) # Use temp draw
-        x += len(text) * config.CHAR_WIDTH * config.SCALE_X
+# REMOVE OLD draw_grid definition if it still exists here
+# REMOVE OLD draw_status_line definition if it still exists here
 
 ############################################################
 # 9) PLAYER SPAWN LOGIC & ANIMATION (Should move to game_logic.py/ui.py)
@@ -367,9 +284,9 @@ def show_spawn_animation(grid, screen, x, y):
 
     for glyphs, color in steps:
         # Redraw the grid state *before* drawing the animation frame
-        draw_grid(screen, grid)
+        drawing.draw_grid(screen, grid) # Ensure this uses drawing.draw_grid
         # Draw the animation character at the target location
-        temp_draw_text(screen, glyphs, px, py, color) # Use temp draw
+        drawing.draw_text(screen, glyphs, px, py, color) # Use drawing module
         # Update the display
         pygame.display.flip()
         # Wait briefly
@@ -387,33 +304,33 @@ def game_over_screen(screen):
     # Center message on screen
     x = (screen.get_width() - w) // 2
     y = (screen.get_height() - h) // 2
-    temp_draw_text(screen, msg, x, y, config.HIGHLIGHT_COLOR) # Use temp draw
+    drawing.draw_text(screen, msg, x, y, config.HIGHLIGHT_COLOR) # Use drawing.draw_text instead of temp_draw_text
     pygame.display.flip()
     pygame.time.wait(3000) # Pause for 3 seconds
 
-def handle_collision(grid, screen):
+def handle_collision(grid, screen, game_state: GameState):
     """Handles the consequences of the player colliding with an enemy."""
-    global lives, running_level_score, game_over_flag # Access global state (TODO: Refactor into Game class)
-    global last_sublevel_name, last_sublevel_start_time, last_sublevel_time_offset # For high score context
+    # global lives, running_level_score, game_over_flag # Access global state (TODO: Refactor into Game class)
+    # global last_sublevel_name, last_sublevel_start_time, last_sublevel_time_offset # For high score context
 
     resources.get_sound('collision').play() # Play collision sound
-    lives -= 1
+    game_state.lose_life()
 
-    if lives <= 0:
+    if game_state.game_over:
         game_over_screen(screen)
         # Calculate time played in the final sublevel before game over
-        partial_time = last_sublevel_time_offset + (utils.get_game_time() - last_sublevel_start_time) // 1000
-        partial_time = max(0, partial_time)
+        # Use game_state attributes
+        partial_time = game_state.get_elapsed_time()
         # Use the high score manager
-        hs_manager.maybe_record_and_show(running_level_score, last_sublevel_name, screen, pygame.time.Clock(), partial_time)
-        game_over_flag = True # Set flag to stop the current level loop
+        hs_manager.maybe_record_and_show(game_state.score, game_state.current_level_name, screen, pygame.time.Clock(), partial_time)
+        # game_over flag is already set within game_state.lose_life()
     else:
         respawn_player(grid, screen) # Respawn if lives remain
 
 ############################################################
 # 11) PLAYER MOVEMENT (Should move to entities.py/game_logic.py)
 ############################################################
-def move_player_direction(grid, direction, stats, screen, explosive_enabled=False):
+def move_player_direction(grid, direction, stats, screen, game_state: GameState, explosive_enabled=False):
     """Attempts to move the player in a given direction (dx, dy)."""
     player_pos = get_player_position(grid)
     if not player_pos:
@@ -436,22 +353,22 @@ def move_player_direction(grid, direction, stats, screen, explosive_enabled=Fals
         stats['moves'] += 1 # Count successful moves
     elif t_type == config.MOVEABLE_BLOCK:
         # Attempt to push the block
-        push_successful = push_blocks_player(grid, (px, py), direction, stats, screen, explosive_enabled)
+        push_successful = push_blocks_player(grid, (px, py), direction, stats, screen, game_state, explosive_enabled)
         if push_successful:
              stats['moves'] += 1 # Count move only if push was successful
     elif t_type == config.UNMOVEABLE_BLOCK:
         if explosive_enabled:
             # Player bumps into wall with explosives enabled -> collision
-            handle_collision(grid, screen)
+            handle_collision(grid, screen, game_state)
         # Else: Do nothing, player cannot move
     elif t_type in (config.HUNTER, config.PUSHER, config.SENTINEL, config.EGG):
         # Player walks into an enemy or egg -> collision
-        handle_collision(grid, screen)
+        handle_collision(grid, screen, game_state)
 
     # Grid might have been modified by handle_collision or push_blocks
     return grid
 
-def push_blocks_player(grid, start_pos, direction, stats, screen, explosive_enabled=False):
+def push_blocks_player(grid, start_pos, direction, stats, screen, game_state: GameState, explosive_enabled=False):
     """Handles the logic for the player pushing a chain of blocks."""
     x, y = start_pos
     dx, dy = direction
@@ -495,6 +412,7 @@ def push_blocks_player(grid, start_pos, direction, stats, screen, explosive_enab
                 can_push = True # Allow the push action for the remaining chain
                 resources.get_sound('squish').play() # Use squish sound for explosion? Or add specific sound
                 # TODO: Add score for explosion?
+                game_state.add_score(1) # Example: Add 1 point for explosion
             else:
                 # Cannot push against wall without explosives
                 can_push = False
@@ -541,7 +459,8 @@ def push_blocks_player(grid, start_pos, direction, stats, screen, explosive_enab
 
         # Handle squishing score and stats
         if squished_enemy_type is not None:
-            stats["score"] = stats.get("score", 0) + squished_enemy_value
+            # stats["score"] = stats.get("score", 0) + squished_enemy_value # Update stats dict if needed
+            game_state.add_score(squished_enemy_value) # Update GameState score
             resources.get_sound('squish').play()
             if squished_enemy_type == config.HUNTER: stats['hunters_killed'] = stats.get('hunters_killed', 0) + 1
             elif squished_enemy_type == config.PUSHER: stats['pushers_killed'] = stats.get('pushers_killed', 0) + 1
@@ -555,7 +474,7 @@ def push_blocks_player(grid, start_pos, direction, stats, screen, explosive_enab
         # Push failed (hit wall without explosion, leads off grid, cannot squish)
         if explosive_enabled and not chain and utils.cell_type(grid[cy][cx]) == config.UNMOVEABLE_BLOCK:
              # Special case: Player directly pushes a wall with explosives enabled
-             handle_collision(grid, screen) # Treat as collision
+             handle_collision(grid, screen, game_state) # Treat as collision
              return False # Push failed, but collision handled
 
         return False # Push failed
@@ -664,7 +583,7 @@ def a_star_path(grid, start, goal, allowed_target_types=(config.EMPTY, config.PL
 
 # --- Enemy Update Logic ---
 
-def update_hunters(grid, hunter_accuracy, screen):
+def update_hunters(grid, hunter_accuracy, screen, game_state: GameState):
     """Updates hunter positions based on A* pathfinding or random movement."""
     player_pos = get_player_position(grid)
     if not player_pos: return # No player to hunt
@@ -679,7 +598,7 @@ def update_hunters(grid, hunter_accuracy, screen):
     collision_occurred = False # Flag to stop processing if player dies mid-update
 
     for (hx, hy) in hunters_positions:
-        if collision_occurred: break # Stop if player was hit
+        if game_state.game_over: break
 
         # Re-check if the hunter is still at this position (might have been squished)
         if utils.cell_type(grid[hy][hx]) != config.HUNTER:
@@ -697,9 +616,8 @@ def update_hunters(grid, hunter_accuracy, screen):
                 target_cell_type = utils.cell_type(grid[ny][nx])
 
                 if target_cell_type == config.PLAYER:
-                    handle_collision(grid, screen)
-                    collision_occurred = True
-                    continue # Move to next hunter (or stop if collision occurred)
+                    handle_collision(grid, screen, game_state)
+                    continue # Move to next hunter (or stop if game over)
                 elif target_cell_type == config.EMPTY:
                     grid[ny][nx] = config.HUNTER # Move hunter
                     grid[hy][hx] = config.EMPTY # Clear old spot
@@ -707,7 +625,7 @@ def update_hunters(grid, hunter_accuracy, screen):
                 # Else: Path blocked by something unexpected, hunter waits or tries random
 
         # If A* didn't move the hunter, try a random move
-        if not moved:
+        if not moved and not game_state.game_over: # Check game_over flag again
             possible_moves = [(0,1),(0,-1),(1,0),(-1,0),(1,1),(1,-1),(-1,1),(-1,-1)] # Diagonal moves allowed
             random.shuffle(possible_moves)
 
@@ -716,8 +634,7 @@ def update_hunters(grid, hunter_accuracy, screen):
                 if 0 <= nx < config.GRID_WIDTH and 0 <= ny < config.GRID_HEIGHT:
                     target_cell_type = utils.cell_type(grid[ny][nx])
                     if target_cell_type == config.PLAYER:
-                        handle_collision(grid, screen)
-                        collision_occurred = True
+                        handle_collision(grid, screen, game_state)
                         break # Stop trying moves for this hunter
                     elif target_cell_type == config.EMPTY:
                         grid[ny][nx] = config.HUNTER
@@ -725,11 +642,8 @@ def update_hunters(grid, hunter_accuracy, screen):
                         moved = True
                         break # Moved successfully
 
-        # If collision occurred in the random move check, break outer loop too
-        if collision_occurred: break
 
-
-def update_sentinels(grid, sentinel_accuracy, screen):
+def update_sentinels(grid, sentinel_accuracy, screen, game_state: GameState):
     """Updates sentinel positions (similar to hunters but maybe different rules)."""
     player_pos = get_player_position(grid)
     if not player_pos: return
@@ -740,10 +654,8 @@ def update_sentinels(grid, sentinel_accuracy, screen):
             if utils.cell_type(grid[y][x]) == config.SENTINEL:
                 sentinel_positions.append((x, y))
 
-    collision_occurred = False
-
     for (sx, sy) in sentinel_positions:
-        if collision_occurred: break
+        if game_state.game_over: break
         if utils.cell_type(grid[sy][sx]) != config.SENTINEL: continue
 
         moved = False
@@ -757,15 +669,14 @@ def update_sentinels(grid, sentinel_accuracy, screen):
                 nx, ny = path[1]
                 target_cell_type = utils.cell_type(grid[ny][nx])
                 if target_cell_type == config.PLAYER:
-                    handle_collision(grid, screen)
-                    collision_occurred = True
+                    handle_collision(grid, screen, game_state)
                     continue
                 elif target_cell_type == config.EMPTY:
                     grid[ny][nx] = config.SENTINEL
                     grid[sy][sx] = config.EMPTY
                     moved = True
 
-        if not moved:
+        if not moved and not game_state.game_over:
             # Random move (can also be diagonal)
             possible_moves = [(0,1),(0,-1),(1,0),(-1,0),(1,1),(1,-1),(-1,1),(-1,-1)]
             random.shuffle(possible_moves)
@@ -774,18 +685,16 @@ def update_sentinels(grid, sentinel_accuracy, screen):
                 if 0 <= nx < config.GRID_WIDTH and 0 <= ny < config.GRID_HEIGHT:
                     target_cell_type = utils.cell_type(grid[ny][nx])
                     if target_cell_type == config.PLAYER:
-                        handle_collision(grid, screen)
-                        collision_occurred = True
+                        handle_collision(grid, screen, game_state)
                         break
                     elif target_cell_type == config.EMPTY:
                         grid[ny][nx] = config.SENTINEL
                         grid[sy][sx] = config.EMPTY
                         moved = True
                         break
-        if collision_occurred: break
 
 
-def pusher_push_blocks(grid, start_pos, dx, dy, screen):
+def pusher_push_blocks(grid, start_pos, dx, dy, screen, game_state: GameState):
     """Handles the logic for a Pusher attempting to push blocks or the player."""
     x, y = start_pos
     nx, ny = x + dx, y + dy # Target cell
@@ -797,9 +706,8 @@ def pusher_push_blocks(grid, start_pos, dx, dy, screen):
 
     if occupant_t == config.PLAYER:
         # Pusher hits player -> collision
-        handle_collision(grid, screen)
-        # Return True because the pusher *attempted* its action, even if it resulted in collision
-        # The collision handler might set game_over_flag, stopping further updates.
+        handle_collision(grid, screen, game_state)
+        # Return True because the pusher *attempted* its action
         return True # Action occurred (collision)
     elif occupant_t == config.EMPTY:
         # Pusher moves into empty space
@@ -842,7 +750,7 @@ def pusher_push_blocks(grid, start_pos, dx, dy, screen):
         # Pusher hits wall, other enemy, egg -> cannot move/push
         return False
 
-def update_pushers(grid, pusher_accuracy, screen):
+def update_pushers(grid, pusher_accuracy, screen, game_state: GameState):
     """Updates pusher positions and handles their block-pushing behavior."""
     player_pos = get_player_position(grid)
     if not player_pos: return
@@ -855,10 +763,8 @@ def update_pushers(grid, pusher_accuracy, screen):
             if utils.cell_type(grid[y][x]) == config.PUSHER:
                 pusher_positions.append((x, y))
 
-    collision_occurred = False # Use local flag, check game_over_flag from global scope if needed
-
     for (px, py) in pusher_positions:
-        if collision_occurred or game_over_flag: break # Stop if player died
+        if game_state.game_over: break
         if utils.cell_type(grid[py][px]) != config.PUSHER: continue # Check if still a pusher
 
         moved = False
@@ -880,13 +786,11 @@ def update_pushers(grid, pusher_accuracy, screen):
 
 
             if (dx, dy) != (0, 0):
-                if pusher_push_blocks(grid, (px, py), dx, dy, screen):
+                if pusher_push_blocks(grid, (px, py), dx, dy, screen, game_state):
                     moved = True
-                    # Check if collision occurred during push
-                    if get_player_position(grid) is None: collision_occurred = True
 
             # --- If direct push failed or wasn't possible, try A* path ---
-            if not moved and not collision_occurred:
+            if not moved and not game_state.game_over:
                  # Pushers use orthogonal pathfinding only
                  path = a_star_path(grid, (px, py), player_pos, diagonals=False,
                                     allowed_target_types=(config.PLAYER, config.EMPTY, config.MOVEABLE_BLOCK), # Can target blocks to push
@@ -896,23 +800,18 @@ def update_pushers(grid, pusher_accuracy, screen):
                      # Get direction from path
                      next_x, next_y = path[1]
                      path_dx, path_dy = next_x - px, next_y - py
-                     if pusher_push_blocks(grid, (px, py), path_dx, path_dy, screen):
+                     if pusher_push_blocks(grid, (px, py), path_dx, path_dy, screen, game_state):
                          moved = True
-                         if get_player_position(grid) is None: collision_occurred = True
 
 
         # --- If not moving towards player or pathing failed, move randomly ---
-        if not moved and not collision_occurred:
+        if not moved and not game_state.game_over:
             possible_moves = [(0,1),(0,-1),(1,0),(-1,0)] # Orthogonal only
             random.shuffle(possible_moves)
             for (rnd_dx, rnd_dy) in possible_moves:
-                if pusher_push_blocks(grid, (px, py), rnd_dx, rnd_dy, screen):
+                if pusher_push_blocks(grid, (px, py), rnd_dx, rnd_dy, screen, game_state):
                     moved = True
-                    if get_player_position(grid) is None: collision_occurred = True
                     break # Stop after first successful random move
-
-        # If collision occurred, stop processing pushers for this frame
-        if get_player_position(grid) is None: collision_occurred = True
 
 
 ############################################################
@@ -931,8 +830,8 @@ def level_selection_screen(screen, clock):
     if not level_letters:
         # Handle case where no levels are loaded
         # Show an error message and maybe exit or default to 'A'
-        temp_draw_text(screen, "ERROR: No levels found!", 50, 100, config.HIGHLIGHT_COLOR)
-        temp_draw_text(screen, "Check levels.json", 50, 140, config.TEXT_COLOR_DEFAULT)
+        drawing.draw_text(screen, "ERROR: No levels found!", 50, 100, config.HIGHLIGHT_COLOR) # Use drawing module
+        drawing.draw_text(screen, "Check levels.json", 50, 140, config.TEXT_COLOR_DEFAULT) # Use drawing module
         pygame.display.flip()
         utils.wait_for_key()
         pygame.quit()
@@ -956,7 +855,7 @@ def level_selection_screen(screen, clock):
         title_start_x = (screen.get_width() - len(title_lines[0][0]) * config.CHAR_WIDTH * config.SCALE_X) // 2
         current_y = title_y
         for line, color in title_lines:
-             temp_draw_text(screen, line, title_start_x, current_y, color)
+             drawing.draw_text(screen, line, title_start_x, current_y, color) # Use drawing module
              current_y += config.CHAR_HEIGHT * config.SCALE_Y + 4 # Spacing
 
         # Draw Level Selection
@@ -965,19 +864,19 @@ def level_selection_screen(screen, clock):
         spacing = 40
         for idx, lvl in enumerate(level_letters):
             color = config.HIGHLIGHT_COLOR if idx == selected_index else config.TEXT_COLOR_DEFAULT
-            temp_draw_text(screen, lvl, level_display_x + idx * spacing, level_display_y, color)
+            drawing.draw_text(screen, lvl, level_display_x + idx * spacing, level_display_y, color) # Use drawing module
             # Draw indicator below selected level
             if idx == selected_index:
                  indicator_x = level_display_x + idx * spacing + (config.CHAR_WIDTH * config.SCALE_X // 2) - 4 # Center indicator
                  indicator_y = level_display_y + config.CHAR_HEIGHT * config.SCALE_Y + 4
-                 temp_draw_text(screen, "^", indicator_x, indicator_y, config.HIGHLIGHT_COLOR)
+                 drawing.draw_text(screen, "^", indicator_x, indicator_y, config.HIGHLIGHT_COLOR) # Use drawing module
 
 
         # Draw Instructions
         prompt = "Arrows: select | ENTER: start | H: high scores | A: art style | ESC: quit"
         prompt_y = screen.get_height() - config.STATUS_HEIGHT # Position above status bar area
         prompt_x = (screen.get_width() - len(prompt) * config.CHAR_WIDTH * config.SCALE_X) // 2 # Center prompt
-        temp_draw_text(screen, prompt, prompt_x, prompt_y, config.TEXT_COLOR_DEFAULT)
+        drawing.draw_text(screen, prompt, prompt_x, prompt_y, config.TEXT_COLOR_DEFAULT) # Use drawing module
 
         pygame.display.flip()
 
@@ -1000,9 +899,7 @@ def level_selection_screen(screen, clock):
                     return level_letters[selected_index] # Return selected level letter
                 elif event.key == K_a:
                     resources.toggle_spritesheet() # Toggle via resources module
-                    # Force redraw with new spritesheet (handled by loop)
-                    global _temp_sprite_sheet_cache # Need to invalidate temp cache
-                    _temp_sprite_sheet_cache = None
+                    drawing.invalidate_sprite_sheet_cache() # Invalidate drawing cache
 
 
         clock.tick(15) # Limit frame rate
@@ -1092,7 +989,7 @@ def show_level_details_screen(screen, clock, level_def):
         screen.fill((0, 0, 0))
         y = start_y
         for line in details:
-            temp_draw_text(screen, line, start_x, y, config.TEXT_COLOR_DEFAULT) # Use temp draw
+            drawing.draw_text(screen, line, start_x, y, config.TEXT_COLOR_DEFAULT) # Use drawing module
             y += line_height
 
         pygame.display.flip()
@@ -1111,133 +1008,112 @@ def show_level_details_screen(screen, clock, level_def):
 ############################################################
 # PLAY A MAIN LEVEL (with sublevels) (Should move to game_logic.py)
 ############################################################
-def play_main_level(level_def, screen, clock):
+def play_main_level(level_def, screen, clock, game_state: GameState):
     """Plays all sublevels for a given main level definition."""
-    global lives, game_over_flag, running_level_score, cumulative_time # Manage global state (TODO: Refactor)
-    global last_sublevel_name, last_sublevel_start_time, last_sublevel_time_offset # For high score context
-
-    # Reset state for the main level
-    running_level_score = 0 # Score accumulates across sublevels
-    # lives are usually reset in main() before calling this
-    game_over_flag = False # Reset game over flag
-    # cumulative_time is managed outside this function for now
+    # Reset score for the main level (lives are reset in main loop)
+    game_state.score = 0
+    # game_state.game_over should be False if we got here
 
     total_moves_main_level = 0
     total_enemies_main_level = 0
-    total_time_main_level = 0
+    total_time_main_level = 0 # Time spent *within* this main level
     total_sublevels = level_def.get("winning_level", 1)
 
     for sublevel_index in range(1, total_sublevels + 1):
-        # Bonus score for starting subsequent sublevels (if enemies exist)
-        # This logic seems odd - applying bonus *before* playing? Maybe apply *after* completing previous?
-        # Let's apply it *after* completing sublevel N-1, before starting N.
+        # Award bonus points for subsequent sublevels
         if sublevel_index > 1:
-             # Award bonus based on *potential* enemies from the definition
-             bonus = 0
-             if level_def.get("enemies", {}).get("hunter", {}).get("count", 0) > 0:
-                 bonus += 2 * config.HUNTER_VALUE # Example bonus
-             if level_def.get("enemies", {}).get("egg", {}).get("count", 0) > 0:
-                 bonus += 1 * config.EGG_VALUE # Example bonus
-             # Add more bonus types if needed
-             running_level_score += bonus
-             # print(f"Sublevel {sublevel_index} start bonus: +{bonus}") # Debug
+            # Calculate bonus explicitly within this scope
+            bonus_points = 0
+            if level_def.get("enemies", {}).get("hunter", {}).get("count", 0) > 0:
+                bonus_points += 2 * config.HUNTER_VALUE
+            if level_def.get("enemies", {}).get("egg", {}).get("count", 0) > 0:
+                bonus_points += 1 * config.EGG_VALUE
+            
+            # Only add score if we calculated a positive bonus
+            if bonus_points > 0:
+                game_state.add_score(bonus_points)
+                # print(f"Sublevel {sublevel_index} start bonus: +{bonus_points}")
 
         # Calculate time offset for this sublevel
-        # This should be the total time spent *before* this sublevel started
-        sub_time_offset = cumulative_time + total_time_main_level
+        sub_time_offset = total_time_main_level
 
         # Play the sublevel
-        result = play_sublevel(level_def, sublevel_index, screen, clock, running_level_score, sub_time_offset)
-
+        result = play_sublevel(level_def, sublevel_index, screen, clock, game_state, sub_time_offset)
+        
         if result is None:
             # Player quit or game over during the sublevel
-            # High score handling is done within handle_collision or if quit confirmed
-            # Reset lives for the next game attempt in main()
-            # lives = 3 # Resetting here might be wrong if main loop handles it
-            game_over_flag = False # Reset flag for next game attempt
             return None # Indicate main level was not completed
 
         # Unpack results from completed sublevel
-        moves, enemies_eliminated, time_taken, final_sublevel_score, level_name = result
-        running_level_score = final_sublevel_score # Update score for next sublevel/final result
+        moves, enemies_eliminated, time_taken, final_sublevel_score = result
+        
+        # Track totals for the main level summary
         total_moves_main_level += moves
         total_enemies_main_level += enemies_eliminated
         total_time_main_level += time_taken
 
-        # Play sound only if not the very last sublevel
+        # Play sound between sublevels (except after the last one)
         if sublevel_index < total_sublevels:
             resources.get_sound('sublevel_complete').play()
-            # Maybe add a small delay or visual cue between sublevels?
             pygame.time.wait(500)
-
 
     # Main level completed successfully
     resources.get_sound('level_complete').play()
-    show_level_complete_screen(screen, level_def.get("level", "?"), total_moves_main_level, total_enemies_main_level, total_time_main_level, running_level_score)
+    
+    # Show completion screen
+    show_level_complete_screen(screen, level_def.get("level", "?"), 
+                               total_moves_main_level, total_enemies_main_level, 
+                               total_time_main_level, game_state.score)
 
     # Return results for the completed main level
-    # Note: cumulative_time should be updated *outside* this function after it returns.
-    return total_moves_main_level, total_enemies_main_level, total_time_main_level, running_level_score, level_def.get("level", "?")
+    return total_moves_main_level, total_enemies_main_level, total_time_main_level, game_state.score, level_def.get("level", "?")
 
 
-def play_sublevel(level_def, sublevel_index, screen, clock, initial_sublevel_score, time_offset):
+def play_sublevel(level_def, sublevel_index, screen, clock, game_state: GameState, time_offset_within_main_level: int):
     """Plays a single sublevel."""
-    global current_level, running_level_score # TODO: Refactor globals
-    global last_sublevel_name, last_sublevel_start_time, last_sublevel_time_offset # For high score context
+    # global current_level, running_level_score # Use game_state
+    # global last_sublevel_name, last_sublevel_start_time, last_sublevel_time_offset # Use game_state
 
     # --- Setup Sublevel ---
-    current_level = sublevel_index # Update global sublevel tracker (if needed elsewhere)
+    # current_level = sublevel_index # Not needed if game_state holds level name
     level_name = f"{level_def.get('level', '?')}{sublevel_index}"
 
-    # Store context for potential game over high score
-    last_sublevel_name = level_name
-    last_sublevel_start_time = utils.get_game_time() # Record start time using game time
-    last_sublevel_time_offset = time_offset
-
-    # Get enemy parameters from level definition
-    enemies_def = level_def.get("enemies", {})
-    h_def = enemies_def.get("hunter", {})
-    p_def = enemies_def.get("pusher", {})
-    s_def = enemies_def.get("sentinel", {})
-
-    h_speed = h_def.get("speed_ms", 1000)
-    h_acc   = h_def.get("accuracy", 50)
-    p_speed = p_def.get("speed_ms", 1000)
-    p_acc   = p_def.get("accuracy", 50)
-    s_speed = s_def.get("speed_ms", 1000)
-    s_acc   = s_def.get("accuracy", 50)
-
     # Initialize sublevel state
-    running_score = initial_sublevel_score # Start with score carried over
+    # running_score = initial_sublevel_score # Score is already in game_state
     grid = generate_level(level_def, sublevel_index) # Generate the grid layout
+
+    # Calculate initial egg count *before* placing player
+    initial_egg_count = sum(1 for row in grid for c in row if utils.cell_type(c) == config.EGG)
+
+    # Start/update game state for this sublevel
+    game_state.start_sublevel(level_name, game_state.score, time_offset_within_main_level, initial_egg_count)
+
     place_player_best_spot(grid, screen) # Place the player
 
     # Check if player spawn failed (no empty space)
     if get_player_position(grid) is None:
          print(f"ERROR: Failed to place player in sublevel {level_name}. Aborting.")
-         # Handle this error - maybe return None or raise exception
          return None # Indicate failure
 
-    # Store initial egg count for status bar (needs refactoring)
-    draw_status_line.initial_egg_count = sum(1 for row in grid for c in row if utils.cell_type(c) == config.EGG)
+    # Store initial egg count for status bar (Now done via game_state)
+    # draw_status_line.initial_egg_count = initial_egg_count # No longer needed
 
-    # Stats for this specific sublevel
+    # Stats for this specific sublevel (can still be useful for level summary)
     stats = {
         'moves': 0,
         'eggs_destroyed': 0,
         'hunters_killed': 0,
         'pushers_killed': 0,
         'sentinels_killed': 0,
-        'score': running_score # Track score changes within this sublevel
+        # 'score': running_score # Score is now managed by game_state
     }
 
     explosive_enabled = level_def.get("explosive_blocks", False)
 
-    # Timers for enemy updates
-    level_start_time_for_updates = utils.get_game_time() # Use game time for update logic
-    last_hunter_update = level_start_time_for_updates
-    last_pusher_update = level_start_time_for_updates
-    last_sentinel_update = level_start_time_for_updates
+    # Timers for enemy updates (use game_state.level_start_time as the base)
+    last_hunter_update = game_state.level_start_time
+    last_pusher_update = game_state.level_start_time
+    last_sentinel_update = game_state.level_start_time
 
     # --- Sublevel Game Loop ---
     sublevel_running = True
@@ -1261,12 +1137,12 @@ def play_sublevel(level_def, sublevel_index, screen, clock, initial_sublevel_sco
                 elif event.key in (K_UP, K_DOWN, K_LEFT, K_RIGHT):
                     # Player movement attempt
                     direction = {K_UP: (0, -1), K_DOWN: (0, 1), K_LEFT: (-1, 0), K_RIGHT: (1, 0)}[event.key]
-                    # Pass the *current* grid and stats
-                    grid = move_player_direction(grid, direction, stats, screen, explosive_enabled)
-                    # Update running score after potential changes in move_player/push_blocks/handle_collision
-                    running_score = stats["score"]
+                    # Pass the *current* grid, stats, and game_state
+                    grid = move_player_direction(grid, direction, stats, screen, game_state, explosive_enabled)
+                    # Update running score is now handled within move/push/collision via game_state.add_score
+                    # running_score = stats["score"] # No longer needed
                     # Check game over flag after move attempt
-                    if game_over_flag:
+                    if game_state.game_over:
                         sublevel_running = False
                         break # Exit event loop for this frame
 
@@ -1276,23 +1152,36 @@ def play_sublevel(level_def, sublevel_index, screen, clock, initial_sublevel_sco
         # --- Game Logic Updates ---
         current_time = utils.get_game_time()
 
+        # Get enemy parameters from level definition
+        enemies_def = level_def.get("enemies", {})
+        h_def = enemies_def.get("hunter", {})
+        p_def = enemies_def.get("pusher", {})
+        s_def = enemies_def.get("sentinel", {})
+
+        h_speed = h_def.get("speed_ms", 1000)
+        h_acc   = h_def.get("accuracy", 50)
+        p_speed = p_def.get("speed_ms", 1000)
+        p_acc   = p_def.get("accuracy", 50)
+        s_speed = s_def.get("speed_ms", 1000)
+        s_acc   = s_def.get("accuracy", 50)
+
         # Update Hunters
         if current_time - last_hunter_update >= h_speed:
-            update_hunters(grid, h_acc, screen)
+            update_hunters(grid, h_acc, screen, game_state)
             last_hunter_update = current_time # Reset timer
-            if game_over_flag: sublevel_running = False; break # Check after update
+            if game_state.game_over: sublevel_running = False; break # Check after update
 
         # Update Pushers
         if current_time - last_pusher_update >= p_speed:
-            update_pushers(grid, p_acc, screen)
+            update_pushers(grid, p_acc, screen, game_state)
             last_pusher_update = current_time
-            if game_over_flag: sublevel_running = False; break
+            if game_state.game_over: sublevel_running = False; break
 
         # Update Sentinels
         if current_time - last_sentinel_update >= s_speed:
-            update_sentinels(grid, s_acc, screen)
+            update_sentinels(grid, s_acc, screen, game_state)
             last_sentinel_update = current_time
-            if game_over_flag: sublevel_running = False; break
+            if game_state.game_over: sublevel_running = False; break
 
         # Update Eggs
         update_eggs(grid) # Check for hatching
@@ -1305,22 +1194,22 @@ def play_sublevel(level_def, sublevel_index, screen, clock, initial_sublevel_sco
             sublevel_running = False # End the loop successfully
 
         # --- Drawing ---
-        draw_grid(screen, grid)
-        # Pass current lives and score to status line
-        draw_status_line(screen, grid, last_sublevel_start_time, lives, level_name, stats["score"], time_offset)
+        drawing.draw_grid(screen, grid) # Use drawing module
+        # Pass game_state to status line drawer
+        drawing.draw_status_line(screen, grid, game_state) # Use drawing module
         pygame.display.flip()
 
         # --- Frame Limiting ---
         clock.tick(15) # Adjust tick rate as needed (was 10)
 
     # --- Sublevel End ---
-    if game_over_flag:
+    if game_state.game_over:
         # Game ended due to collision
         return None # Signal failure/game over
 
     # Sublevel completed successfully
     level_end_time = utils.get_game_time()
-    time_taken_ms = level_end_time - last_sublevel_start_time
+    time_taken_ms = level_end_time - game_state.level_start_time
     time_taken_seconds = max(0, time_taken_ms // 1000) # Ensure non-negative
 
     # Calculate completion bonus (example logic)
@@ -1330,12 +1219,12 @@ def play_sublevel(level_def, sublevel_index, screen, clock, initial_sublevel_sco
     difficulty_bonus = math.floor(total_sublevels_in_main / 3) * 4 # More bonus for longer levels
     progression_bonus = (sublevel_index - 1) * 4 # More bonus for later sublevels
     completion_bonus = base_bonus + difficulty_bonus + progression_bonus
-    stats["score"] += completion_bonus
+    game_state.add_score(completion_bonus) # Add bonus to game state score
     # print(f"Sublevel {level_name} completion bonus: +{completion_bonus}") # Debug
 
-    # Return stats for this completed sublevel
+    # Return stats for this completed sublevel (score is now taken from game_state)
     enemies_killed_this_sublevel = (stats['hunters_killed'] + stats['pushers_killed'] + stats['sentinels_killed'] + stats['eggs_destroyed'])
-    return stats['moves'], enemies_killed_this_sublevel, time_taken_seconds, stats["score"], level_name
+    return stats['moves'], enemies_killed_this_sublevel, time_taken_seconds, game_state.score
 
 
 def show_level_complete_screen(screen, level_letter, moves, enemies_eliminated, time_taken, level_score):
@@ -1362,7 +1251,7 @@ def show_level_complete_screen(screen, level_letter, moves, enemies_eliminated, 
         # Center each line individually
         line_width = len(line) * config.CHAR_WIDTH * config.SCALE_X
         current_x = (screen.get_width() - line_width) // 2
-        temp_draw_text(screen, line, current_x, current_y, config.TEXT_COLOR_DEFAULT) # Use temp draw
+        drawing.draw_text(screen, line, current_x, current_y, config.TEXT_COLOR_DEFAULT) # Use drawing module
         current_y += line_height
 
     pygame.display.flip()
@@ -1501,7 +1390,8 @@ def generate_level(level_def, sublevel_index):
 
     # Place Eggs (need special handling for time)
     egg_hatch_time_ms = level_def.get("egg_incubation_ms", 10000) # Default 10s
-    now = utils.get_game_time()
+    # Get current game time *once* before the loop for consistency
+    egg_placement_start_time = utils.get_game_time()
     placed_eggs = 0
     while placed_eggs < e_count and coord_idx < len(empty_coords):
         x, y = empty_coords[coord_idx]
@@ -1509,7 +1399,8 @@ def generate_level(level_def, sublevel_index):
             # Add slight randomization to hatch time (+/- 10%)
             factor = 0.9 + 0.2 * random.random()
             hatch_time = int(egg_hatch_time_ms * factor)
-            grid[y][x] = (config.EGG, hatch_time, now) # Store type, duration, start time
+            # Use the consistent start time for all eggs placed in this batch
+            grid[y][x] = (config.EGG, hatch_time, egg_placement_start_time)
             placed_eggs += 1
         coord_idx += 1
     if placed_eggs < e_count:
@@ -1546,7 +1437,7 @@ def generate_level(level_def, sublevel_index):
 # MAIN EXECUTION
 ############################################################
 def main():
-    global lives, cumulative_time, game_over_flag # Manage global state (TODO: Refactor)
+    # global lives, cumulative_time, game_over_flag # No longer needed
 
     # --- Initialization ---
     pygame.init()
@@ -1571,40 +1462,40 @@ def main():
     resources.load_sounds()
     resources.load_levels_json() # Load level definitions
 
+    # Create GameState instance
+    game_state = GameState()
+
     # --- Main Application Loop ---
     while True:
         # Reset game state for a new attempt
-        lives = 3
-        cumulative_time = 0 # Reset time for the whole game session
-        utils.reset_pause_offset() # Reset pause timer offset
-        game_over_flag = False # Ensure flag is reset
+        game_state.reset_for_new_game()
+        # lives = 3 # Handled by reset
+        # cumulative_time = 0 # Not tracked this way anymore
+        # utils.reset_pause_offset() # Handled by reset
+        # game_over_flag = False # Handled by reset
 
         # Show Level Selection
         selected_level_letter = level_selection_screen(screen, clock)
-        if selected_level_letter is None: # Should not happen with current logic, but safety check
-            break # Exit if level selection failed somehow
+        # ... (handle selection failure) ...
 
         # Get Level Definition
         level_def = resources.get_main_level_def(selected_level_letter)
 
         # Show Level Details and Confirm Start
         if show_level_details_screen(screen, clock, level_def):
-            # Player confirmed, start playing the main level
-            level_result = play_main_level(level_def, screen, clock)
+            # Player confirmed, start playing the main level, passing game_state
+            level_result = play_main_level(level_def, screen, clock, game_state)
 
             if level_result is not None:
                 # Level completed successfully
                 moves, enemies, time, score, level_name = level_result
-                # Update cumulative time for potential high score recording
-                # Note: play_main_level returns the time for *that level only*
-                total_session_time = time # In this structure, cumulative time isn't tracked across multiple level plays in one run
-                # Record high score if qualified
-                hs_manager.maybe_record_and_show(score, level_name, screen, clock, total_session_time)
+                # Score and level_name are already correct in game_state if needed elsewhere
+                # Record high score if qualified, using final score and time from result
+                hs_manager.maybe_record_and_show(score, level_name, screen, clock, time)
             else:
                 # Level was quit or ended in game over
-                # High score handling (if game over) is done within handle_collision -> hs_manager
-                # If quit, no score is recorded here. hs_manager.show_screen might be called if needed.
-                # Loop continues back to level selection
+                # game_state.game_over is True if game over occurred
+                # High score handling (if game over) is done within handle_collision
                 pass
         else:
             # Player cancelled from level details screen, loop back to level selection
