@@ -1,62 +1,142 @@
-Squish is a grid-based arcade puzzle game inspired by the classic Beast from WordPerfect Office. Remastered for modern systems, Squish delivers challenging, fast-paced gameplay with refined mechanics, immersive sound, and an enhanced high score system.
+# S Q U I S H — v5.0
 
-## About the Game
+> A real-time, keyboard-driven arcade puzzle game inspired by the classic **Beast** (WordPerfect Office, 1984).
 
-In Squish you navigate a dynamic playing field on a fixed-size grid. Your objective is to avoid and eliminate a variety of enemies by strategically pushing blocks. Each enemy type presents a unique challenge:
+---
 
-- **Hunters** relentlessly pursue you.
-- **Eggs** will hatch over time into dangerous foes.
-- **Pushers** aim to drive blocks toward you.
-- **Sentinels** demand careful planning—they can be squished when you trap them between a block and a wall.
-- **Explosive Blocks** add an extra twist: in levels featuring them, pushing a block into an explosive block destroys the pushed block, altering the dynamics of your strategy.
+## Overview
 
-Mastering Squish means balancing quick reflexes with thoughtful planning as you progress through increasingly challenging levels.
+You are a lone character on a 40 × 25 grid packed with moveable blocks and relentless enemies.  
+**Your only weapon is physics** — trap enemies by pushing blocks into them.  
+Survive every enemy on the board to clear the sublevel, then repeat until the main level is complete.
 
-## Gameplay Features
+The game is deliberately retro: rendered entirely from a DOS codepage-437 sprite sheet, driven entirely by the keyboard, with a real-time clock ticking away as the enemies grow faster between sublevels.
 
-- **Strategic Block Pushing:** Use your environment to outmaneuver and eliminate enemies.
-- **Diverse Enemy Behavior:** Each enemy type has its own movement and attack style, providing fresh challenges at every level.
-- **Explosive Block Mechanics:** In certain levels, explosive blocks change the rules—pushing a block into them will destroy the block instead of harming you, if used correctly.
-- **High Score System:** Track your achievements with a built-in high score system that features both an overall leaderboard and per-level rankings. Enjoy smooth scrolling in the high score views.
-- **Immersive Sound Effects:** Experience dynamic sound feedback that enhances the arcade atmosphere.
-- **Grid-Based Precision:** Enjoy classic, tile-based movement that rewards precision and strategy.
+---
+
+## Enemy Types
+
+| Symbol | Name | Behaviour |
+|--------|------|-----------|
+| `├┤` | **Hunter** | Pursues you with A★ pathfinding and diagonal movement. Accuracy and speed are configurable per level. |
+| `ΦΦ` | **Pusher** | Moves orthogonally and pushes block chains toward you. Can be used against itself. |
+| `╟╢` | **Sentinel** | Behaves like a Hunter but uses separate speed/accuracy settings — often harder in later levels. |
+| `○○` | **Egg** | Stationary but ticking — hatches into a Pusher after a configurable incubation period. Colour shifts from yellow → orange → flashing red as hatching nears. |
+
+Squish an enemy by pushing a block into it while it has a wall, block, or another enemy directly behind it.
+
+---
+
+## Power-ups (New in v5)
+
+Power-ups appear as glowing characters scattered across each sublevel.  
+Walk into one to activate it instantly.
+
+| Symbol | Colour | Effect |
+|--------|--------|--------|
+| `☼☼` | Cyan | **Slow** — halves enemy move frequency for 8 seconds |
+| `☺☺` | Green | **Shield** — absorbs the next lethal enemy hit |
+| `♥♥` | Yellow | **Extra Life** — grants +1 life (capped at 5) |
+
+---
 
 ## Controls
 
-- **Arrow Keys:** Move your character in four directions.
-- **Esc:** Pause the game.
-- **Q:** Quit the current level (returns you to the level selection screen).
+| Key | Action |
+|-----|--------|
+| Arrow keys | Move / push blocks |
+| Shift + Arrow | **Pull** a block behind you while stepping forward (on levels with pull-blocks enabled) |
+| Esc | Pause game |
+| Q | Quit to level select (with confirmation) |
+| H (level select) | View high scores |
+| A (level select) | Toggle art style (DOS / ST sprite sheet) |
+
+---
+
+## Scoring
+
+| Action | Points |
+|--------|--------|
+| Squish a Hunter | 2 |
+| Squish an Egg | 3 |
+| Squish a Pusher | 5 |
+| Squish a Sentinel | 7 |
+| Collect a power-up | 1 |
+| Complete a sublevel | 5 + difficulty bonus |
+| **Perfect sublevel** (no lives lost) | +10 + (sublevel index × 5) |
+| **Combo** (kills within 3 s of each other) | base × combo multiplier (up to ×5) |
+
+---
+
+## Level Progression
+
+Each main level (A, B, C…) consists of one or more **sublevels**.  
+Enemy counts increase with each sublevel, and — when `speed_up` is enabled for that level — enemies also move progressively faster (capped at a minimum interval so the game stays fair).  
+Complete all sublevels of a main level to post a high score and move on.
+
+---
 
 ## Running the Game
 
-### Running from Source
-
-Squish is built in Python with `pygame`. To run from source:
-
-```
+```bash
 git clone https://github.com/mvuijlst/squish.git
 cd squish
 pip install -r requirements.txt
 python squish.py
 ```
 
-### Running the Executable
+> **Note for Python 3.14+:** the standard `pygame` package does not yet ship binary wheels for 3.14.
+> Install `pygame-ce` instead (fully API-compatible community fork):
+> `pip install pygame-ce`
 
-If you prefer not to run from source, simply double-click the `squish.exe` file to start the game.
+A pre-built `squish.exe` is available in the [Releases](../../releases) section for Windows users who prefer not to install Python.
 
-## About This Release
+---
 
-This release is a complete rewrite of the previous version (v1.2.0), featuring:
+## Release Notes
 
-- A reimagined gameplay experience with updated enemy behaviors and block mechanics.
-- Enhanced sound effects that add to the immersive experience.
-- A refined high score system with scrollable leaderboards and dynamic per-level rankings.
+### v5.0 (2026-02-21)
+
+#### New features
+
+- **Power-up system** — three collectible items (Slow, Shield, Extra Life) spawn on every sublevel.
+- **Block-pull mechanic** — on levels with `pull_blocks: true`, hold **Shift** while pressing an arrow key to drag the moveable block behind you as you step forward.  This flag was defined in the level JSON since v4 but was never implemented; it is fully wired up in v5.
+- **Combo multiplier** — killing enemies within a 3-second window chains into a ×2 … ×5 multiplier shown on screen until the window expires.
+- **Speed-up per sublevel** — levels with `speed_up: true` now actually accelerate between sublevels (enemy `speed_ms` × 0.90 per round, floored at 150 ms).  Previously the flag was loaded but had no effect.
+- **Particle effects** — squishing an enemy triggers a burst of coloured particles at the kill location.
+- **Screen-flash feedback** — a red overlay flashes briefly on a lethal hit; a blue-tinted flash indicates a shield absorbing the hit.
+- **Wave banner** — a "ROUND N" banner fades in/out at the start of each sublevel.
+- **Doubled status bar** — a second status row shows active power-up countdowns and a quick-reference keyboard hint.
+- **Lives cap** — maximum lives capped at 5 (configurable via `config.MAX_LIVES`).
+- **Perfect-sublevel bonus** — completing a sublevel without losing a life awards extra points.
+
+#### Fixes / improvements
+
+- `pull_blocks` level flag is now honoured at runtime (was a no-op in v4).
+- `speed_up` level flag is now honoured at runtime (was a no-op in v4).
+- Enemy kill scoring now routes through `add_kill_score()` which applies the combo multiplier, replacing direct `add_score()` calls.
+- Level-details screen now shows the pull-block setting and the Shift+arrow hint.
+- Pushing a block over a power-up cell silently destroys the power-up (blocks win).
+
+---
+
+### v4.0.1 (2025)
+
+- First public release after complete rewrite from v1.2.0.
+- Modular source split into `squish.py`, `config.py`, `utils.py`, `drawing.py`, `resources.py`, `highscore.py`.
+- `GameState` class replacing scattered global variables.
+- A★ pathfinding for Hunters and Sentinels (with diagonal movement).
+- Per-level and global high score tables, XOR-encrypted on disk.
+- Dual sprite-sheet support (DOS and Atari ST; toggle with **A** at level select).
+- Spawn animation and best-spot algorithm for player re-entry after death.
+- Sublevel completion bonuses and progression-based enemy scaling.
+
+---
 
 ## Contributing
 
-- Report bugs or suggest improvements via GitHub Issues.
-- Pull requests with enhancements are welcome!
+Bug reports and pull requests are welcome via GitHub Issues and PRs.
 
 ## License
 
-Squish is licensed under the **MIT License**. See the `LICENSE` file for details.
+MIT — see `LICENSE`.

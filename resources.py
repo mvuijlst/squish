@@ -45,11 +45,11 @@ def load_sounds():
     """Loads all game sounds."""
     global _sounds
     sound_files = {
-        'squish': config.SOUND_SQUISH,
-        'collision': config.SOUND_COLLISION,
-        'level_complete': config.SOUND_LEVEL_COMPLETE,
+        'squish':            config.SOUND_SQUISH,
+        'collision':         config.SOUND_COLLISION,
+        'level_complete':    config.SOUND_LEVEL_COMPLETE,
         'sublevel_complete': config.SOUND_SUBLEVEL_COMPLETE,
-        # 'explosion': config.SOUND_EXPLOSION # Add if needed
+        'powerup':           config.SOUND_POWERUP,   # v5 – power-up pickup
     }
     for name, filename in sound_files.items():
         path = utils.resource_path(filename)
@@ -58,7 +58,7 @@ def load_sounds():
                 _sounds[name] = pygame.mixer.Sound(path)
             except pygame.error as e:
                  print(f"ERROR: Cannot load sound '{filename}': {e}")
-                 _sounds[name] = None # Or a dummy sound object
+                 _sounds[name] = None
         else:
             print(f"WARN: Sound file not found: {filename}")
             _sounds[name] = None
