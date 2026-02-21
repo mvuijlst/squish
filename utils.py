@@ -90,6 +90,16 @@ def get_cell_color(cell):
         return config.PUSHER_COLOR
     elif t == config.SENTINEL:
         return config.SENTINEL_COLOR
+    elif t == config.POWERUP:
+        # v5: colour depends on powerup sub-type stored in cell[1]
+        ptype = cell[1] if isinstance(cell, tuple) and len(cell) > 1 else None
+        if ptype == config.POWERUP_SLOW:
+            return config.POWERUP_SLOW_COLOR
+        elif ptype == config.POWERUP_SHIELD:
+            return config.POWERUP_SHIELD_COLOR
+        elif ptype == config.POWERUP_EXTRA_LIFE:
+            return config.POWERUP_EXTRA_LIFE_COLOR
+        return (0xff, 0xff, 0xff)  # fallback white
     return (0, 0, 0) # Default to black for EMPTY or unknown
 
 ############################################################
