@@ -1,6 +1,6 @@
 #############################################
 ##                                         ##
-##          S Q U I S H  v4.0.1            ##
+##          S Q U I S H  v5.0              ##
 ##                                         ##
 ##      (c) 2025 Michel Vuijlsteke         ##
 ##                                         ##
@@ -46,6 +46,23 @@ class GameState:
         # State for UI
         self.initial_egg_count: int = 0
 
+        # v5 – combo system
+        self.combo_count: int = 0
+        self.last_kill_time: int = 0
+
+        # v5 – power-up effects
+        self.shield_active: bool = False
+        self.slow_active_until: int = 0   # game-time ms when slow expires
+
+        # v5 – visual effects
+        self.flash_until: int = 0          # game-time ms when death-flash expires
+        self.flash_color: tuple = (255, 0, 0)
+        self.particles: list = []          # list of particle dicts
+
+        # v5 – wave banner
+        self.wave_banner_text: str = ""
+        self.wave_banner_until: int = 0   # game-time ms when banner disappears
+
     def reset_for_new_game(self):
         self.lives = 3
         self.score = 0
@@ -54,7 +71,26 @@ class GameState:
         self.level_start_time = 0
         self.time_offset = 0
         self.initial_egg_count = 0
+        # v5 resets
+        self.combo_count = 0
+        self.last_kill_time = 0
+        self.shield_active = False
+        self.slow_active_until = 0
+        self.flash_until = 0
+        self.particles = []
+        self.wave_banner_text = ""
+        self.wave_banner_until = 0
         utils.reset_pause_offset() # Also reset global pause offset
+
+    def reset_for_sublevel(self):
+        """Resets per-sublevel transient state (particles, flash, banner)."""
+        self.combo_count = 0
+        self.last_kill_time = 0
+        self.flash_until = 0
+        self.particles = []
+        self.wave_banner_text = ""
+        self.wave_banner_until = 0
+        # shield and slow carry over between sublevels intentionally
 
     def start_sublevel(self, level_name: str, initial_score: int, time_offset: int, initial_eggs: int):
         self.current_level_name = level_name
@@ -66,6 +102,20 @@ class GameState:
 
     def add_score(self, points: int):
         self.score += points
+
+    def add_kill_score(self, base_points: int):
+        """Awards points for a kill, applying combo multiplier.
+
+        The combo window is config.COMBO_TIMEOUT_MS.  Every kill within the
+        window increments the multiplier (capped at ×5 for balance).
+        """
+        now = utils.get_game_time()
+        if now - self.last_kill_time <= config.COMBO_TIMEOUT_MS:
+            self.combo_count = min(self.combo_count + 1, 5)
+        else:
+            self.combo_count = 1  # reset, but count this kill as first
+        self.last_kill_time = now
+        self.score += base_points * self.combo_count
 
     def lose_life(self):
         self.lives -= 1
@@ -310,26 +360,126 @@ def game_over_screen(screen):
 
 def handle_collision(grid, screen, game_state: GameState):
     """Handles the consequences of the player colliding with an enemy."""
-    # global lives, running_level_score, game_over_flag # Access global state (TODO: Refactor into Game class)
-    # global last_sublevel_name, last_sublevel_start_time, last_sublevel_time_offset # For high score context
+    # v5 – if shield is active, absorb the hit and cancel it
+    if game_state.shield_active:
+        game_state.shield_active = False
+        # Brief white flash to indicate the shield absorbed the hit
+        game_state.flash_color = (200, 200, 255)
+        game_state.flash_until = utils.get_game_time() + 500
+        resources.get_sound('collision').play()
+        return  # hit absorbed, no life lost
 
     resources.get_sound('collision').play() # Play collision sound
+
+    # v5 – red death flash
+    game_state.flash_color = (255, 0, 0)
+    game_state.flash_until = utils.get_game_time() + 500
+
     game_state.lose_life()
 
     if game_state.game_over:
         game_over_screen(screen)
         # Calculate time played in the final sublevel before game over
-        # Use game_state attributes
         partial_time = game_state.get_elapsed_time()
-        # Use the high score manager
         hs_manager.maybe_record_and_show(game_state.score, game_state.current_level_name, screen, pygame.time.Clock(), partial_time)
-        # game_over flag is already set within game_state.lose_life()
     else:
         respawn_player(grid, screen) # Respawn if lives remain
 
 ############################################################
 # 11) PLAYER MOVEMENT (Should move to entities.py/game_logic.py)
 ############################################################
+
+# --- v5 Particle helper ---
+def spawn_particles(game_state: GameState, grid_x: int, grid_y: int, color: tuple, count: int = 10):
+    """Creates an outward burst of particles at a grid cell position."""
+    cx = grid_x * (config.CHAR_WIDTH * config.SCALE_X * 2) + config.CHAR_WIDTH * config.SCALE_X
+    cy = grid_y * (config.CHAR_HEIGHT * config.SCALE_Y) + config.CHAR_HEIGHT * config.SCALE_Y // 2
+    now = utils.get_game_time()
+    for _ in range(count):
+        angle = random.uniform(0, 2 * math.pi)
+        speed = random.uniform(40, 120)  # pixels per second
+        lifetime = random.randint(400, 750)
+        game_state.particles.append({
+            'px': cx, 'py': cy,           # spawn position
+            'vx': math.cos(angle) * speed, # pixels/s
+            'vy': math.sin(angle) * speed,
+            'color': color,
+            'birth': now,
+            'lifetime': lifetime,
+            'x': cx, 'y': cy,             # current position (updated in draw)
+        })
+
+
+# --- v5 Pull-block helper ---
+def pull_block_player(grid, direction, stats, screen, game_state: GameState):
+    """Attempts to pull a moveable block behind the player as they move forward.
+
+    Works when pull_blocks is enabled and SHIFT is held.  The player must be
+    able to step into the target cell *and* there must be a moveable block
+    directly behind them (opposite to the move direction).
+    """
+    player_pos = get_player_position(grid)
+    if not player_pos:
+        return grid
+
+    px, py = player_pos
+    dx, dy = direction
+    tx, ty = px + dx, py + dy   # where the player wants to go
+    bx, by = px - dx, py - dy   # cell directly behind the player
+
+    # Check bounds
+    if not (0 <= tx < config.GRID_WIDTH and 0 <= ty < config.GRID_HEIGHT):
+        return grid  # can't move there
+
+    target_cell_type = utils.cell_type(grid[ty][tx])
+
+    # Target must be empty (or a power-up, which counts as walkable)
+    if target_cell_type not in (config.EMPTY, config.POWERUP):
+        return grid  # can't pull-move into this cell
+
+    # Collect power-up if stepping on one
+    if target_cell_type == config.POWERUP:
+        activate_powerup(grid[ty][tx], grid, game_state, screen)
+
+    # Check behind the player for a moveable block
+    has_block_behind = (
+        0 <= bx < config.GRID_WIDTH and
+        0 <= by < config.GRID_HEIGHT and
+        utils.cell_type(grid[by][bx]) == config.MOVEABLE_BLOCK
+    )
+
+    # Move the player
+    block_data = grid[by][bx] if has_block_behind else None
+    grid[py][px] = config.EMPTY       # clear old player pos
+    grid[ty][tx] = config.PLAYER      # place player
+
+    # Pull the block into the player's old position
+    if has_block_behind:
+        grid[py][px] = block_data      # drag block forward
+        grid[by][bx] = config.EMPTY   # clear old block pos
+
+    stats['moves'] += 1
+    return grid
+
+
+# --- v5 Power-up activation ---
+def activate_powerup(cell, grid, game_state: GameState, screen):
+    """Applies the effect of a power-up cell and awards a small score bonus."""
+    ptype = cell[1] if isinstance(cell, tuple) and len(cell) > 1 else None
+    resources.get_sound('powerup').play()
+    game_state.add_score(config.POWERUP_SCORE)
+
+    if ptype == config.POWERUP_SLOW:
+        game_state.slow_active_until = utils.get_game_time() + config.POWERUP_SLOW_DURATION_MS
+
+    elif ptype == config.POWERUP_SHIELD:
+        game_state.shield_active = True
+
+    elif ptype == config.POWERUP_EXTRA_LIFE:
+        if game_state.lives < config.MAX_LIVES:
+            game_state.lives += 1
+
+
 def move_player_direction(grid, direction, stats, screen, game_state: GameState, explosive_enabled=False):
     """Attempts to move the player in a given direction (dx, dy)."""
     player_pos = get_player_position(grid)
@@ -351,6 +501,12 @@ def move_player_direction(grid, direction, stats, screen, game_state: GameState,
         grid[py][px] = config.EMPTY # Clear old position
         grid[ty][tx] = config.PLAYER # Move to new position
         stats['moves'] += 1 # Count successful moves
+    elif t_type == config.POWERUP:
+        # v5 – walk into a power-up to collect it
+        activate_powerup(target_cell, grid, game_state, screen)
+        grid[py][px] = config.EMPTY
+        grid[ty][tx] = config.PLAYER
+        stats['moves'] += 1
     elif t_type == config.MOVEABLE_BLOCK:
         # Attempt to push the block
         push_successful = push_blocks_player(grid, (px, py), direction, stats, screen, game_state, explosive_enabled)
@@ -398,8 +554,8 @@ def push_blocks_player(grid, start_pos, direction, stats, screen, game_state: Ga
     else:
         occupant_t = utils.cell_type(grid[final_pos_y][final_pos_x])
 
-        if occupant_t == config.EMPTY:
-            # Space after the chain is empty - can push
+        if occupant_t == config.EMPTY or occupant_t == config.POWERUP:
+            # Space after the chain is empty (or a power-up, which gets crushed) - can push
             can_push = True
         elif occupant_t == config.UNMOVEABLE_BLOCK:
             # Chain hits a wall
@@ -459,9 +615,11 @@ def push_blocks_player(grid, start_pos, direction, stats, screen, game_state: Ga
 
         # Handle squishing score and stats
         if squished_enemy_type is not None:
-            # stats["score"] = stats.get("score", 0) + squished_enemy_value # Update stats dict if needed
-            game_state.add_score(squished_enemy_value) # Update GameState score
+            game_state.add_kill_score(squished_enemy_value) # v5 – combo-aware scoring
             resources.get_sound('squish').play()
+            # v5 – spawn particles at the squish location
+            enemy_color = utils.get_cell_color(grid[final_pos_y][final_pos_x])
+            spawn_particles(game_state, final_pos_x, final_pos_y, enemy_color, count=12)
             if squished_enemy_type == config.HUNTER: stats['hunters_killed'] = stats.get('hunters_killed', 0) + 1
             elif squished_enemy_type == config.PUSHER: stats['pushers_killed'] = stats.get('pushers_killed', 0) + 1
             elif squished_enemy_type == config.SENTINEL: stats['sentinels_killed'] = stats.get('sentinels_killed', 0) + 1
@@ -733,8 +891,8 @@ def pusher_push_blocks(grid, start_pos, dx, dy, screen, game_state: GameState):
             return False # Chain leads off grid
 
         final_t = utils.cell_type(grid[final_y][final_x])
-        if final_t == config.EMPTY:
-            # Can push the chain
+        if final_t == config.EMPTY or final_t == config.POWERUP:
+            # Can push the chain (power-up gets overwritten if present)
             # Move blocks from back to front
             for (bx, by) in reversed(chain):
                 grid[by + dy][bx + dx] = grid[by][bx] # Copy block data
@@ -908,8 +1066,7 @@ def show_level_details_screen(screen, clock, level_def):
     """Displays details about the selected level before starting."""
     lvl = level_def.get("level", "?")
     winning_level = level_def.get("winning_level", 1)
-    # pull_blocks = level_def.get("pull_blocks", False) # Feature not implemented?
-    # speed_up = level_def.get("speed_up", False)     # Feature not implemented?
+    pull_blocks = level_def.get("pull_blocks", False)   # v5 – now implemented
     explosive_blocks = level_def.get("explosive_blocks", False)
     enemies = level_def.get("enemies", {})
     egg_incubation_ms = level_def.get("egg_incubation_ms", 0)
@@ -964,8 +1121,7 @@ def show_level_details_screen(screen, clock, level_def):
         f"Level {lvl}",
         "",
         f"Goal: Complete {winning_level} sublevel(s)",
-        # f"Pull blocks:        {'Yes' if pull_blocks else 'No'}", # Hide if not implemented
-        # f"Game speed up:      {'Yes' if speed_up else 'No'}",   # Hide if not implemented
+        f"Pull blocks:     {'Yes  (Shift+arrow)' if pull_blocks else 'No'}",
         f"Explosive blocks: {'Yes' if explosive_blocks else 'No'}",
         "",
     ]
@@ -1075,11 +1231,9 @@ def play_sublevel(level_def, sublevel_index, screen, clock, game_state: GameStat
     # global last_sublevel_name, last_sublevel_start_time, last_sublevel_time_offset # Use game_state
 
     # --- Setup Sublevel ---
-    # current_level = sublevel_index # Not needed if game_state holds level name
     level_name = f"{level_def.get('level', '?')}{sublevel_index}"
 
     # Initialize sublevel state
-    # running_score = initial_sublevel_score # Score is already in game_state
     grid = generate_level(level_def, sublevel_index) # Generate the grid layout
 
     # Calculate initial egg count *before* placing player
@@ -1088,15 +1242,29 @@ def play_sublevel(level_def, sublevel_index, screen, clock, game_state: GameStat
     # Start/update game state for this sublevel
     game_state.start_sublevel(level_name, game_state.score, time_offset_within_main_level, initial_egg_count)
 
+    # v5 – reset transient per-sublevel state (particles, flash, etc.)
+    game_state.reset_for_sublevel()
+
+    # v5 – wave banner: "ROUND N" shown for 2 seconds at sublevel start
+    game_state.wave_banner_text = f"ROUND {sublevel_index}"
+    game_state.wave_banner_until = utils.get_game_time() + 2000
+
+    # v5 – speed_up factor: enemies get faster each sublevel when flag is set
+    speed_up_enabled = level_def.get("speed_up", False)
+    if speed_up_enabled:
+        speed_factor = config.SPEED_UP_FACTOR ** (sublevel_index - 1)
+    else:
+        speed_factor = 1.0
+
+    # v5 – pull blocks flag (from level definition)
+    pull_blocks_enabled = level_def.get("pull_blocks", False)
+
     place_player_best_spot(grid, screen) # Place the player
 
     # Check if player spawn failed (no empty space)
     if get_player_position(grid) is None:
          print(f"ERROR: Failed to place player in sublevel {level_name}. Aborting.")
          return None # Indicate failure
-
-    # Store initial egg count for status bar (Now done via game_state)
-    # draw_status_line.initial_egg_count = initial_egg_count # No longer needed
 
     # Stats for this specific sublevel (can still be useful for level summary)
     stats = {
@@ -1105,10 +1273,12 @@ def play_sublevel(level_def, sublevel_index, screen, clock, game_state: GameStat
         'hunters_killed': 0,
         'pushers_killed': 0,
         'sentinels_killed': 0,
-        # 'score': running_score # Score is now managed by game_state
     }
 
     explosive_enabled = level_def.get("explosive_blocks", False)
+
+    # v5 – track lives at start so we can give a perfect-run bonus
+    lives_at_sublevel_start = game_state.lives
 
     # Timers for enemy updates (use game_state.level_start_time as the base)
     last_hunter_update = game_state.level_start_time
@@ -1137,10 +1307,12 @@ def play_sublevel(level_def, sublevel_index, screen, clock, game_state: GameStat
                 elif event.key in (K_UP, K_DOWN, K_LEFT, K_RIGHT):
                     # Player movement attempt
                     direction = {K_UP: (0, -1), K_DOWN: (0, 1), K_LEFT: (-1, 0), K_RIGHT: (1, 0)}[event.key]
-                    # Pass the *current* grid, stats, and game_state
-                    grid = move_player_direction(grid, direction, stats, screen, game_state, explosive_enabled)
-                    # Update running score is now handled within move/push/collision via game_state.add_score
-                    # running_score = stats["score"] # No longer needed
+                    mods = pygame.key.get_mods()
+                    # v5 – SHIFT+arrow = pull block (if enabled for this level)
+                    if pull_blocks_enabled and (mods & pygame.KMOD_SHIFT):
+                        grid = pull_block_player(grid, direction, stats, screen, game_state)
+                    else:
+                        grid = move_player_direction(grid, direction, stats, screen, game_state, explosive_enabled)
                     # Check game over flag after move attempt
                     if game_state.game_over:
                         sublevel_running = False
@@ -1164,6 +1336,13 @@ def play_sublevel(level_def, sublevel_index, screen, clock, game_state: GameStat
         p_acc   = p_def.get("accuracy", 50)
         s_speed = s_def.get("speed_ms", 1000)
         s_acc   = s_def.get("accuracy", 50)
+
+        # v5 – apply speed-up factor (each sublevel enemies are faster)
+        # and slow power-up (doubles the interval, making enemies slower)
+        slow_mult = 2.0 if current_time < game_state.slow_active_until else 1.0
+        h_speed = max(config.SPEED_UP_MIN_MS, int(h_speed * speed_factor * slow_mult))
+        p_speed = max(config.SPEED_UP_MIN_MS, int(p_speed * speed_factor * slow_mult))
+        s_speed = max(config.SPEED_UP_MIN_MS, int(s_speed * speed_factor * slow_mult))
 
         # Update Hunters
         if current_time - last_hunter_update >= h_speed:
@@ -1195,6 +1374,12 @@ def play_sublevel(level_def, sublevel_index, screen, clock, game_state: GameStat
 
         # --- Drawing ---
         drawing.draw_grid(screen, grid) # Use drawing module
+        # v5 – draw overlay effects (particles, flash, combo text, wave banner)
+        now_for_draw = utils.get_game_time()
+        drawing.draw_particles(screen, game_state.particles, now_for_draw)
+        drawing.draw_flash(screen, game_state.flash_until, game_state.flash_color, now_for_draw)
+        drawing.draw_combo_text(screen, game_state.combo_count, game_state.last_kill_time, now_for_draw)
+        drawing.draw_wave_banner(screen, game_state.wave_banner_text, game_state.wave_banner_until, now_for_draw)
         # Pass game_state to status line drawer
         drawing.draw_status_line(screen, grid, game_state) # Use drawing module
         pygame.display.flip()
@@ -1220,7 +1405,11 @@ def play_sublevel(level_def, sublevel_index, screen, clock, game_state: GameStat
     progression_bonus = (sublevel_index - 1) * 4 # More bonus for later sublevels
     completion_bonus = base_bonus + difficulty_bonus + progression_bonus
     game_state.add_score(completion_bonus) # Add bonus to game state score
-    # print(f"Sublevel {level_name} completion bonus: +{completion_bonus}") # Debug
+
+    # v5 – perfect-run bonus: player didn't lose a life in this sublevel
+    if game_state.lives >= lives_at_sublevel_start:
+        perfect_bonus = 10 + sublevel_index * 5
+        game_state.add_score(perfect_bonus)
 
     # Return stats for this completed sublevel (score is now taken from game_state)
     enemies_killed_this_sublevel = (stats['hunters_killed'] + stats['pushers_killed'] + stats['sentinels_killed'] + stats['eggs_destroyed'])
@@ -1406,6 +1595,19 @@ def generate_level(level_def, sublevel_index):
     if placed_eggs < e_count:
          print(f"WARN: Could not place all Eggs. Placed {placed_eggs}/{e_count}.")
 
+    # --- v5: Place Power-ups ---
+    # 1–3 random power-ups per sublevel; more variety on later sublevels
+    total_enemies = h_count + p_count + s_count + e_count
+    num_powerups = max(1, min(3, total_enemies // 4))
+    powerup_types = [config.POWERUP_SLOW, config.POWERUP_SHIELD, config.POWERUP_EXTRA_LIFE]
+    placed_powerups = 0
+    while placed_powerups < num_powerups and coord_idx < len(empty_coords):
+        x, y = empty_coords[coord_idx]
+        if grid[y][x] == config.EMPTY:
+            ptype = random.choice(powerup_types)
+            grid[y][x] = (config.POWERUP, ptype)
+            placed_powerups += 1
+        coord_idx += 1
 
     return grid
 
