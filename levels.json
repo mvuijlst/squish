@@ -9,7 +9,7 @@
             "hunter": {
                 "count": 1,
                 "speed_ms": 2000,
-                "accuracy": 100,
+                "accuracy": 40,
                 "speed_variability": 1,
                 "mutation_ratio": 0.0
             }
@@ -25,7 +25,7 @@
             "hunter": {
                 "count": 2,
                 "speed_ms": 2000,
-                "accuracy": 100,
+                "accuracy": 45,
                 "speed_variability": 2,
                 "mutation_ratio": 0.0
             }
@@ -41,7 +41,7 @@
             "hunter": {
                 "count": 3,
                 "speed_ms": 2000,
-                "accuracy": 100,
+                "accuracy": 50,
                 "speed_variability": 3,
                 "mutation_ratio": 0.0
             }
@@ -56,8 +56,8 @@
         "enemies": {
             "hunter": {
                 "count": 3,
-                "speed_ms": 2000,
-                "accuracy": 100,
+                "speed_ms": 1900,
+                "accuracy": 55,
                 "speed_variability": 4,
                 "mutation_ratio": 0.0
             }
@@ -72,8 +72,8 @@
         "enemies": {
             "hunter": {
                 "count": 4,
-                "speed_ms": 2000,
-                "accuracy": 100,
+                "speed_ms": 1800,
+                "accuracy": 60,
                 "speed_variability": 5,
                 "mutation_ratio": 0.0
             }
@@ -88,8 +88,8 @@
         "enemies": {
             "hunter": {
                 "count": 4,
-                "speed_ms": 2000,
-                "accuracy": 100,
+                "speed_ms": 1700,
+                "accuracy": 65,
                 "speed_variability": 6,
                 "mutation_ratio": 0.0
             }
@@ -104,15 +104,19 @@
         "enemies": {
             "hunter": {
                 "count": 4,
-                "speed_ms": 2000,
-                "accuracy": 100,
+                "speed_ms": 1600,
+                "accuracy": 70,
                 "speed_variability": 7,
                 "mutation_ratio": 0.0
             },
             "egg": {
-                "count": 1.0,
-                "incubation_s": 60.0,
+                "count": 1,
+                "incubation_s": 60,
                 "hatches_into": "pusher"
+            },
+            "pusher": {
+                "speed_ms": 1600,
+                "accuracy": 50
             }
         }
     },
@@ -125,11 +129,15 @@
         "enemies": {
             "hunter": {
                 "count": 4,
-                "speed_ms": 2000,
-                "accuracy": 100,
+                "speed_ms": 1500,
+                "accuracy": 75,
                 "speed_variability": 8,
                 "mutation_ratio": 0.25,
                 "mutates_into": "sentinel"
+            },
+            "sentinel": {
+                "speed_ms": 1500,
+                "accuracy": 55
             }
         }
     },
@@ -142,16 +150,24 @@
         "enemies": {
             "hunter": {
                 "count": 4,
-                "speed_ms": 2000,
-                "accuracy": 100,
+                "speed_ms": 1400,
+                "accuracy": 78,
                 "speed_variability": 9,
                 "mutation_ratio": 0.25,
                 "mutates_into": "sentinel"
             },
             "egg": {
-                "count": 1.0,
-                "incubation_s": 60.0,
+                "count": 1,
+                "incubation_s": 55,
                 "hatches_into": "pusher"
+            },
+            "pusher": {
+                "speed_ms": 1400,
+                "accuracy": 55
+            },
+            "sentinel": {
+                "speed_ms": 1400,
+                "accuracy": 60
             }
         }
     },
@@ -164,16 +180,24 @@
         "enemies": {
             "hunter": {
                 "count": 4,
-                "speed_ms": 2000,
-                "accuracy": 100,
+                "speed_ms": 1300,
+                "accuracy": 80,
                 "speed_variability": 10,
                 "mutation_ratio": 0.25,
                 "mutates_into": "sentinel"
             },
             "egg": {
-                "count": 2.0,
-                "incubation_s": 60.0,
+                "count": 2,
+                "incubation_s": 55,
                 "hatches_into": "pusher"
+            },
+            "pusher": {
+                "speed_ms": 1300,
+                "accuracy": 58
+            },
+            "sentinel": {
+                "speed_ms": 1300,
+                "accuracy": 65
             }
         }
     },
@@ -186,16 +210,24 @@
         "enemies": {
             "hunter": {
                 "count": 4,
-                "speed_ms": 2000,
-                "accuracy": 100,
+                "speed_ms": 1200,
+                "accuracy": 82,
                 "speed_variability": 11,
                 "mutation_ratio": 0.25,
                 "mutates_into": "sentinel"
             },
             "egg": {
-                "count": 3.0,
-                "incubation_s": 60.0,
+                "count": 3,
+                "incubation_s": 50,
                 "hatches_into": "pusher"
+            },
+            "pusher": {
+                "speed_ms": 1200,
+                "accuracy": 60
+            },
+            "sentinel": {
+                "speed_ms": 1200,
+                "accuracy": 70
             }
         }
     },
@@ -208,16 +240,24 @@
         "enemies": {
             "hunter": {
                 "count": 5,
-                "speed_ms": 2000,
-                "accuracy": 100,
+                "speed_ms": 1100,
+                "accuracy": 85,
                 "speed_variability": 12,
                 "mutation_ratio": 0.25,
                 "mutates_into": "sentinel"
             },
             "egg": {
-                "count": 10.0,
-                "incubation_s": 70.0,
+                "count": 10,
+                "incubation_s": 70,
                 "hatches_into": "pusher"
+            },
+            "pusher": {
+                "speed_ms": 1100,
+                "accuracy": 63
+            },
+            "sentinel": {
+                "speed_ms": 1100,
+                "accuracy": 75
             }
         }
     },
@@ -230,16 +270,24 @@
         "enemies": {
             "hunter": {
                 "count": 10,
-                "speed_ms": 2000,
-                "accuracy": 100,
+                "speed_ms": 1000,
+                "accuracy": 87,
                 "speed_variability": 13,
                 "mutation_ratio": 0.25,
                 "mutates_into": "sentinel"
             },
             "egg": {
-                "count": 1.0,
-                "incubation_s": 0.0,
+                "count": 1,
+                "incubation_s": 30,
                 "hatches_into": "pusher"
+            },
+            "pusher": {
+                "speed_ms": 1000,
+                "accuracy": 65
+            },
+            "sentinel": {
+                "speed_ms": 1000,
+                "accuracy": 78
             }
         }
     },
@@ -252,16 +300,24 @@
         "enemies": {
             "hunter": {
                 "count": 1,
-                "speed_ms": 2000,
-                "accuracy": 100,
+                "speed_ms": 950,
+                "accuracy": 88,
                 "speed_variability": 14,
                 "mutation_ratio": 0.25,
                 "mutates_into": "sentinel"
             },
             "egg": {
-                "count": 15.0,
-                "incubation_s": 7.0,
+                "count": 15,
+                "incubation_s": 7,
                 "hatches_into": "pusher"
+            },
+            "pusher": {
+                "speed_ms": 950,
+                "accuracy": 68
+            },
+            "sentinel": {
+                "speed_ms": 950,
+                "accuracy": 80
             }
         }
     },
@@ -274,11 +330,15 @@
         "enemies": {
             "hunter": {
                 "count": 2,
-                "speed_ms": 2000,
-                "accuracy": 100,
+                "speed_ms": 900,
+                "accuracy": 90,
                 "speed_variability": 15,
                 "mutation_ratio": 1.0,
                 "mutates_into": "sentinel"
+            },
+            "sentinel": {
+                "speed_ms": 900,
+                "accuracy": 82
             }
         }
     },
@@ -291,16 +351,24 @@
         "enemies": {
             "hunter": {
                 "count": 4,
-                "speed_ms": 2000,
-                "accuracy": 100,
+                "speed_ms": 850,
+                "accuracy": 92,
                 "speed_variability": 16,
                 "mutation_ratio": 0.25,
                 "mutates_into": "sentinel"
             },
             "egg": {
-                "count": 5.0,
-                "incubation_s": 50.0,
+                "count": 5,
+                "incubation_s": 50,
                 "hatches_into": "pusher"
+            },
+            "pusher": {
+                "speed_ms": 850,
+                "accuracy": 72
+            },
+            "sentinel": {
+                "speed_ms": 850,
+                "accuracy": 85
             }
         }
     },
@@ -313,16 +381,24 @@
         "enemies": {
             "hunter": {
                 "count": 4,
-                "speed_ms": 2000,
-                "accuracy": 100,
+                "speed_ms": 800,
+                "accuracy": 93,
                 "speed_variability": 17,
                 "mutation_ratio": 0.25,
                 "mutates_into": "sentinel"
             },
             "egg": {
-                "count": 6.0,
-                "incubation_s": 50.0,
+                "count": 6,
+                "incubation_s": 50,
                 "hatches_into": "pusher"
+            },
+            "pusher": {
+                "speed_ms": 800,
+                "accuracy": 74
+            },
+            "sentinel": {
+                "speed_ms": 800,
+                "accuracy": 87
             }
         }
     },
@@ -335,16 +411,24 @@
         "enemies": {
             "hunter": {
                 "count": 4,
-                "speed_ms": 2000,
-                "accuracy": 100,
+                "speed_ms": 750,
+                "accuracy": 94,
                 "speed_variability": 18,
                 "mutation_ratio": 0.25,
                 "mutates_into": "sentinel"
             },
             "egg": {
-                "count": 7.0,
-                "incubation_s": 50.0,
+                "count": 7,
+                "incubation_s": 50,
                 "hatches_into": "pusher"
+            },
+            "pusher": {
+                "speed_ms": 750,
+                "accuracy": 76
+            },
+            "sentinel": {
+                "speed_ms": 750,
+                "accuracy": 89
             }
         }
     },
@@ -357,16 +441,24 @@
         "enemies": {
             "hunter": {
                 "count": 4,
-                "speed_ms": 2000,
-                "accuracy": 100,
+                "speed_ms": 700,
+                "accuracy": 95,
                 "speed_variability": 19,
                 "mutation_ratio": 0.25,
                 "mutates_into": "sentinel"
             },
             "egg": {
-                "count": 7.0,
-                "incubation_s": 50.0,
+                "count": 7,
+                "incubation_s": 45,
                 "hatches_into": "pusher"
+            },
+            "pusher": {
+                "speed_ms": 700,
+                "accuracy": 78
+            },
+            "sentinel": {
+                "speed_ms": 700,
+                "accuracy": 90
             }
         }
     },
@@ -379,16 +471,24 @@
         "enemies": {
             "hunter": {
                 "count": 4,
-                "speed_ms": 2000,
-                "accuracy": 100,
+                "speed_ms": 650,
+                "accuracy": 96,
                 "speed_variability": 20,
                 "mutation_ratio": 0.125,
                 "mutates_into": "sentinel"
             },
             "egg": {
-                "count": 8.0,
-                "incubation_s": 45.0,
+                "count": 8,
+                "incubation_s": 45,
                 "hatches_into": "pusher"
+            },
+            "pusher": {
+                "speed_ms": 650,
+                "accuracy": 80
+            },
+            "sentinel": {
+                "speed_ms": 650,
+                "accuracy": 92
             }
         }
     },
@@ -401,16 +501,24 @@
         "enemies": {
             "hunter": {
                 "count": 5,
-                "speed_ms": 2000,
-                "accuracy": 100,
+                "speed_ms": 600,
+                "accuracy": 97,
                 "speed_variability": 21,
                 "mutation_ratio": 0.125,
                 "mutates_into": "sentinel"
             },
             "egg": {
-                "count": 9.0,
-                "incubation_s": 40.0,
+                "count": 9,
+                "incubation_s": 40,
                 "hatches_into": "pusher"
+            },
+            "pusher": {
+                "speed_ms": 600,
+                "accuracy": 83
+            },
+            "sentinel": {
+                "speed_ms": 600,
+                "accuracy": 94
             }
         }
     },
@@ -423,16 +531,24 @@
         "enemies": {
             "hunter": {
                 "count": 5,
-                "speed_ms": 2000,
-                "accuracy": 100,
+                "speed_ms": 550,
+                "accuracy": 98,
                 "speed_variability": 22,
                 "mutation_ratio": 0.25,
                 "mutates_into": "sentinel"
             },
             "egg": {
-                "count": 10.0,
-                "incubation_s": 35.0,
+                "count": 10,
+                "incubation_s": 35,
                 "hatches_into": "pusher"
+            },
+            "pusher": {
+                "speed_ms": 550,
+                "accuracy": 85
+            },
+            "sentinel": {
+                "speed_ms": 550,
+                "accuracy": 95
             }
         }
     },
@@ -445,16 +561,24 @@
         "enemies": {
             "hunter": {
                 "count": 6,
-                "speed_ms": 2000,
-                "accuracy": 100,
+                "speed_ms": 500,
+                "accuracy": 99,
                 "speed_variability": 23,
                 "mutation_ratio": 0.25,
                 "mutates_into": "sentinel"
             },
             "egg": {
-                "count": 10.0,
-                "incubation_s": 30.0,
+                "count": 10,
+                "incubation_s": 30,
                 "hatches_into": "pusher"
+            },
+            "pusher": {
+                "speed_ms": 500,
+                "accuracy": 87
+            },
+            "sentinel": {
+                "speed_ms": 500,
+                "accuracy": 96
             }
         }
     },
@@ -467,16 +591,24 @@
         "enemies": {
             "hunter": {
                 "count": 6,
-                "speed_ms": 2000,
-                "accuracy": 100,
+                "speed_ms": 450,
+                "accuracy": 99,
                 "speed_variability": 24,
                 "mutation_ratio": 0.25,
                 "mutates_into": "sentinel"
             },
             "egg": {
-                "count": 10.0,
-                "incubation_s": 20.0,
+                "count": 10,
+                "incubation_s": 20,
                 "hatches_into": "pusher"
+            },
+            "pusher": {
+                "speed_ms": 450,
+                "accuracy": 90
+            },
+            "sentinel": {
+                "speed_ms": 450,
+                "accuracy": 97
             }
         }
     },
@@ -489,16 +621,24 @@
         "enemies": {
             "hunter": {
                 "count": 6,
-                "speed_ms": 2000,
+                "speed_ms": 400,
                 "accuracy": 100,
                 "speed_variability": 25,
                 "mutation_ratio": 0.5,
                 "mutates_into": "sentinel"
             },
             "egg": {
-                "count": 10.0,
-                "incubation_s": 15.0,
+                "count": 10,
+                "incubation_s": 15,
                 "hatches_into": "pusher"
+            },
+            "pusher": {
+                "speed_ms": 400,
+                "accuracy": 93
+            },
+            "sentinel": {
+                "speed_ms": 400,
+                "accuracy": 98
             }
         }
     },
@@ -511,16 +651,24 @@
         "enemies": {
             "hunter": {
                 "count": 2,
-                "speed_ms": 2000,
+                "speed_ms": 350,
                 "accuracy": 100,
                 "speed_variability": 26,
                 "mutation_ratio": 1.0,
                 "mutates_into": "sentinel"
             },
             "egg": {
-                "count": 10.0,
-                "incubation_s": 15.0,
+                "count": 10,
+                "incubation_s": 15,
                 "hatches_into": "pusher"
+            },
+            "pusher": {
+                "speed_ms": 350,
+                "accuracy": 95
+            },
+            "sentinel": {
+                "speed_ms": 350,
+                "accuracy": 100
             }
         }
     }
