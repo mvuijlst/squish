@@ -9,7 +9,7 @@
             "hunter": {
                 "count": 1,
                 "speed_ms": 2000,
-                "accuracy": 40,
+                "accuracy": 60,
                 "speed_variability": 1,
                 "mutation_ratio": 0.0
             }
@@ -25,7 +25,7 @@
             "hunter": {
                 "count": 2,
                 "speed_ms": 2000,
-                "accuracy": 45,
+                "accuracy": 63,
                 "speed_variability": 2,
                 "mutation_ratio": 0.0
             }
@@ -41,7 +41,7 @@
             "hunter": {
                 "count": 3,
                 "speed_ms": 2000,
-                "accuracy": 50,
+                "accuracy": 65,
                 "speed_variability": 3,
                 "mutation_ratio": 0.0
             }
@@ -57,7 +57,7 @@
             "hunter": {
                 "count": 3,
                 "speed_ms": 1900,
-                "accuracy": 55,
+                "accuracy": 67,
                 "speed_variability": 4,
                 "mutation_ratio": 0.0
             }
@@ -73,7 +73,7 @@
             "hunter": {
                 "count": 4,
                 "speed_ms": 1800,
-                "accuracy": 60,
+                "accuracy": 70,
                 "speed_variability": 5,
                 "mutation_ratio": 0.0
             }
@@ -89,7 +89,7 @@
             "hunter": {
                 "count": 4,
                 "speed_ms": 1700,
-                "accuracy": 65,
+                "accuracy": 72,
                 "speed_variability": 6,
                 "mutation_ratio": 0.0
             }
@@ -105,7 +105,7 @@
             "hunter": {
                 "count": 4,
                 "speed_ms": 1600,
-                "accuracy": 70,
+                "accuracy": 74,
                 "speed_variability": 7,
                 "mutation_ratio": 0.0
             },
@@ -116,7 +116,7 @@
             },
             "pusher": {
                 "speed_ms": 1600,
-                "accuracy": 50
+                "accuracy": 55
             }
         }
     },
@@ -130,14 +130,14 @@
             "hunter": {
                 "count": 4,
                 "speed_ms": 1500,
-                "accuracy": 75,
+                "accuracy": 76,
                 "speed_variability": 8,
                 "mutation_ratio": 0.25,
                 "mutates_into": "sentinel"
             },
             "sentinel": {
                 "speed_ms": 1500,
-                "accuracy": 55
+                "accuracy": 62
             }
         }
     },
@@ -163,11 +163,11 @@
             },
             "pusher": {
                 "speed_ms": 1400,
-                "accuracy": 55
+                "accuracy": 58
             },
             "sentinel": {
                 "speed_ms": 1400,
-                "accuracy": 60
+                "accuracy": 65
             }
         }
     },
@@ -193,11 +193,11 @@
             },
             "pusher": {
                 "speed_ms": 1300,
-                "accuracy": 58
+                "accuracy": 60
             },
             "sentinel": {
                 "speed_ms": 1300,
-                "accuracy": 65
+                "accuracy": 68
             }
         }
     },
@@ -211,7 +211,7 @@
             "hunter": {
                 "count": 4,
                 "speed_ms": 1200,
-                "accuracy": 82,
+                "accuracy": 81,
                 "speed_variability": 11,
                 "mutation_ratio": 0.25,
                 "mutates_into": "sentinel"
@@ -223,7 +223,7 @@
             },
             "pusher": {
                 "speed_ms": 1200,
-                "accuracy": 60
+                "accuracy": 61
             },
             "sentinel": {
                 "speed_ms": 1200,
@@ -241,7 +241,7 @@
             "hunter": {
                 "count": 5,
                 "speed_ms": 1100,
-                "accuracy": 85,
+                "accuracy": 82,
                 "speed_variability": 12,
                 "mutation_ratio": 0.25,
                 "mutates_into": "sentinel"
@@ -253,11 +253,11 @@
             },
             "pusher": {
                 "speed_ms": 1100,
-                "accuracy": 63
+                "accuracy": 62
             },
             "sentinel": {
                 "speed_ms": 1100,
-                "accuracy": 75
+                "accuracy": 72
             }
         }
     },
@@ -271,7 +271,7 @@
             "hunter": {
                 "count": 10,
                 "speed_ms": 1000,
-                "accuracy": 87,
+                "accuracy": 82,
                 "speed_variability": 13,
                 "mutation_ratio": 0.25,
                 "mutates_into": "sentinel"
@@ -283,11 +283,11 @@
             },
             "pusher": {
                 "speed_ms": 1000,
-                "accuracy": 65
+                "accuracy": 62
             },
             "sentinel": {
                 "speed_ms": 1000,
-                "accuracy": 78
+                "accuracy": 74
             }
         }
     },
@@ -301,7 +301,7 @@
             "hunter": {
                 "count": 1,
                 "speed_ms": 950,
-                "accuracy": 88,
+                "accuracy": 82,
                 "speed_variability": 14,
                 "mutation_ratio": 0.25,
                 "mutates_into": "sentinel"
@@ -313,11 +313,11 @@
             },
             "pusher": {
                 "speed_ms": 950,
-                "accuracy": 68
+                "accuracy": 62
             },
             "sentinel": {
                 "speed_ms": 950,
-                "accuracy": 80
+                "accuracy": 74
             }
         }
     },
@@ -331,14 +331,14 @@
             "hunter": {
                 "count": 2,
                 "speed_ms": 900,
-                "accuracy": 90,
+                "accuracy": 80,
                 "speed_variability": 15,
                 "mutation_ratio": 1.0,
                 "mutates_into": "sentinel"
             },
             "sentinel": {
                 "speed_ms": 900,
-                "accuracy": 82
+                "accuracy": 73
             }
         }
     },
@@ -352,7 +352,7 @@
             "hunter": {
                 "count": 4,
                 "speed_ms": 850,
-                "accuracy": 92,
+                "accuracy": 80,
                 "speed_variability": 16,
                 "mutation_ratio": 0.25,
                 "mutates_into": "sentinel"
@@ -364,11 +364,11 @@
             },
             "pusher": {
                 "speed_ms": 850,
-                "accuracy": 72
+                "accuracy": 61
             },
             "sentinel": {
                 "speed_ms": 850,
-                "accuracy": 85
+                "accuracy": 73
             }
         }
     },
@@ -382,7 +382,7 @@
             "hunter": {
                 "count": 4,
                 "speed_ms": 800,
-                "accuracy": 93,
+                "accuracy": 78,
                 "speed_variability": 17,
                 "mutation_ratio": 0.25,
                 "mutates_into": "sentinel"
@@ -394,11 +394,11 @@
             },
             "pusher": {
                 "speed_ms": 800,
-                "accuracy": 74
+                "accuracy": 60
             },
             "sentinel": {
                 "speed_ms": 800,
-                "accuracy": 87
+                "accuracy": 72
             }
         }
     },
@@ -412,7 +412,7 @@
             "hunter": {
                 "count": 4,
                 "speed_ms": 750,
-                "accuracy": 94,
+                "accuracy": 77,
                 "speed_variability": 18,
                 "mutation_ratio": 0.25,
                 "mutates_into": "sentinel"
@@ -424,11 +424,11 @@
             },
             "pusher": {
                 "speed_ms": 750,
-                "accuracy": 76
+                "accuracy": 59
             },
             "sentinel": {
                 "speed_ms": 750,
-                "accuracy": 89
+                "accuracy": 71
             }
         }
     },
@@ -442,7 +442,7 @@
             "hunter": {
                 "count": 4,
                 "speed_ms": 700,
-                "accuracy": 95,
+                "accuracy": 76,
                 "speed_variability": 19,
                 "mutation_ratio": 0.25,
                 "mutates_into": "sentinel"
@@ -454,11 +454,11 @@
             },
             "pusher": {
                 "speed_ms": 700,
-                "accuracy": 78
+                "accuracy": 58
             },
             "sentinel": {
                 "speed_ms": 700,
-                "accuracy": 90
+                "accuracy": 70
             }
         }
     },
@@ -472,7 +472,7 @@
             "hunter": {
                 "count": 4,
                 "speed_ms": 650,
-                "accuracy": 96,
+                "accuracy": 75,
                 "speed_variability": 20,
                 "mutation_ratio": 0.125,
                 "mutates_into": "sentinel"
@@ -484,11 +484,11 @@
             },
             "pusher": {
                 "speed_ms": 650,
-                "accuracy": 80
+                "accuracy": 57
             },
             "sentinel": {
                 "speed_ms": 650,
-                "accuracy": 92
+                "accuracy": 69
             }
         }
     },
@@ -502,7 +502,7 @@
             "hunter": {
                 "count": 5,
                 "speed_ms": 600,
-                "accuracy": 97,
+                "accuracy": 74,
                 "speed_variability": 21,
                 "mutation_ratio": 0.125,
                 "mutates_into": "sentinel"
@@ -514,11 +514,11 @@
             },
             "pusher": {
                 "speed_ms": 600,
-                "accuracy": 83
+                "accuracy": 56
             },
             "sentinel": {
                 "speed_ms": 600,
-                "accuracy": 94
+                "accuracy": 68
             }
         }
     },
@@ -532,7 +532,7 @@
             "hunter": {
                 "count": 5,
                 "speed_ms": 550,
-                "accuracy": 98,
+                "accuracy": 73,
                 "speed_variability": 22,
                 "mutation_ratio": 0.25,
                 "mutates_into": "sentinel"
@@ -544,11 +544,11 @@
             },
             "pusher": {
                 "speed_ms": 550,
-                "accuracy": 85
+                "accuracy": 55
             },
             "sentinel": {
                 "speed_ms": 550,
-                "accuracy": 95
+                "accuracy": 67
             }
         }
     },
@@ -562,7 +562,7 @@
             "hunter": {
                 "count": 6,
                 "speed_ms": 500,
-                "accuracy": 99,
+                "accuracy": 72,
                 "speed_variability": 23,
                 "mutation_ratio": 0.25,
                 "mutates_into": "sentinel"
@@ -574,11 +574,11 @@
             },
             "pusher": {
                 "speed_ms": 500,
-                "accuracy": 87
+                "accuracy": 54
             },
             "sentinel": {
                 "speed_ms": 500,
-                "accuracy": 96
+                "accuracy": 66
             }
         }
     },
@@ -592,7 +592,7 @@
             "hunter": {
                 "count": 6,
                 "speed_ms": 450,
-                "accuracy": 99,
+                "accuracy": 71,
                 "speed_variability": 24,
                 "mutation_ratio": 0.25,
                 "mutates_into": "sentinel"
@@ -604,11 +604,11 @@
             },
             "pusher": {
                 "speed_ms": 450,
-                "accuracy": 90
+                "accuracy": 53
             },
             "sentinel": {
                 "speed_ms": 450,
-                "accuracy": 97
+                "accuracy": 65
             }
         }
     },
@@ -622,7 +622,7 @@
             "hunter": {
                 "count": 6,
                 "speed_ms": 400,
-                "accuracy": 100,
+                "accuracy": 70,
                 "speed_variability": 25,
                 "mutation_ratio": 0.5,
                 "mutates_into": "sentinel"
@@ -634,11 +634,11 @@
             },
             "pusher": {
                 "speed_ms": 400,
-                "accuracy": 93
+                "accuracy": 52
             },
             "sentinel": {
                 "speed_ms": 400,
-                "accuracy": 98
+                "accuracy": 64
             }
         }
     },
@@ -652,7 +652,7 @@
             "hunter": {
                 "count": 2,
                 "speed_ms": 350,
-                "accuracy": 100,
+                "accuracy": 68,
                 "speed_variability": 26,
                 "mutation_ratio": 1.0,
                 "mutates_into": "sentinel"
@@ -664,11 +664,11 @@
             },
             "pusher": {
                 "speed_ms": 350,
-                "accuracy": 95
+                "accuracy": 50
             },
             "sentinel": {
                 "speed_ms": 350,
-                "accuracy": 100
+                "accuracy": 63
             }
         }
     }
